@@ -1,21 +1,25 @@
 #ifndef QUILL_H
 #define QUILL_H
 
+#include <functional>
 
+namespace quill {
 
-// Initialize the runtime system
+// API to initialize runtime
 void init_runtime();
 
-// Finalize the runtime system
-void finalize_runtime();
-
-// Start a finish scope
+// API to start a finish scope
 void start_finish();
 
-// End a finish scope
+// API to end a finish scope
 void end_finish();
 
-// Launch a task asynchronously
-void async(void (*task)(void*), void* args);
+// API to create an async task
+void async(std::function<void()> &&lambda);
+
+// API to finalize runtime and release resources
+void finalize_runtime();
+
+} // namespace quill
 
 #endif // QUILL_H

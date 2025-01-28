@@ -14,6 +14,7 @@ static std::vector<pthread_t> workers;
 static pthread_mutex_t runtime_lock = PTHREAD_MUTEX_INITIALIZER;
 static int num_workers = 1; // Default number of workers
 
+volatile boolean shutdown = false;
 void init_quill_runtime() {
     const char* workers_env = std::getenv("QUILL_WORKERS");
     if (workers_env) {
@@ -30,6 +31,7 @@ void init_quill_runtime() {
 }
 
 void finalize_quill_runtime() {
+    shutdown = true;
     for (int i = 0; i < num_workers; ++i) {
         pthread_join(workers[i], nullptr);
     }
@@ -72,28 +74,38 @@ bool WorkerDeque::pop(std::function<void()> &task) {
     return false;
 }
 
+// Worker function for threads other than the main thread
 void* worker_func(void* arg) {
     int worker_id = (intptr_t)arg;
+
+    while (!shutdown) {
+        find_and_execute_task(worker_id);
+        // Optionally, add a small sleep to reduce contention
+        usleep(100); 
+    }
+
+    return nullptr;
+}
+
+// Function to find and execute a task
+void find_and_execute_task(int worker_id) {
     WorkerDeque& deque = worker_deques[worker_id];
-    
-    while (true) {
-        std::function<void()> task;
-        if (deque.pop(task)) {
-            task();
-        } else {
-            bool stolen = false;
-            for (int i = 0; i < num_workers; ++i) {
-                if (i != worker_id && worker_deques[i].steal(task)) {
-                    stolen = true;
-                    break;
-                }
-            }
-            if (stolen) {
+    std::function<void()> task;
+
+    // Try to pop a task from the local deque
+    if (deque.pop(task)) {
+        task();
+        --finish_counter;
+    } else {
+        // Attempt to steal a task from other workers
+        for (int i = 0; i < num_workers; ++i) {
+            if (i != worker_id && worker_deques[i].steal(task)) {
                 task();
+                --finish_counter;
+                return;
             }
         }
     }
-    return nullptr;
 }
 
 int get_worker_id() {
@@ -106,13 +118,18 @@ void async(std::function<void()> &&lambda) {
     int worker_id = get_worker_id();
     worker_deques[worker_id].push(std::move(lambda));
 }
-
+volatile int finish_counter = 0;
 void start_finish() {
     // Handle the start of the finish scope (no recursion allowed)
+    finish_counter = 0;
 }
 
 void end_finish() {
-    // Handle the end of the finish scope
+    int main_thread_id = 0; // Assuming the main thread has ID 0
+
+    while (finish_counter != 0) {
+        find_and_execute_task(main_thread_id);
+    }
 }
 
 } // namespace quill

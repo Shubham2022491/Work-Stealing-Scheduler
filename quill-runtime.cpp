@@ -33,13 +33,38 @@ namespace quill {
             if (pthread_create(&workers[i], nullptr, (void*(*)(void*))worker_func, (void*)(intptr_t)i) != 0) {
                 throw std::runtime_error("Failed to create worker thread");
             }
-            std::cout<<"Worker "<<i<<" created"<<std::endl;
+            // std::cout<<"Worker "<<i<<" created"<<std::endl;
         }
-        std::cout << "Quill runtime initialized with " << num_workers << " threads." << std::endl;
+        // std::cout << "Quill runtime initialized with " << num_workers << " threads." << std::endl;
+    }
+
+    volatile int finish_counter = 0;
+    void start_finish() {
+        // Handle the start of the finish scope (no recursion allowed)
+        finish_counter = 0;
+        // cout<<"Finish Counter: "<<finish_counter<<endl;
+    }
+    thread_local int worker_id = 0;
+
+    int get_worker_id() {
+    // Assuming unique worker ID is assigned through pthread
+        return worker_id;
+        
+    }
+
+    
+    void async(std::function<void()> &&lambda) {
+        // lock
+        finish_counter++;
+        // unlock
+
+        int worker_id = get_worker_id();
+        worker_deques[worker_id].push(std::move(lambda));
+
     }
 
     void find_and_execute_task(int worker_id) {
-        cout << "Worker " << worker_id << " finding and executing task" << endl;
+        cout << "Worker " << get_worker_id()<< " finding and executing task" << endl;
         // WorkerDeque& deque = worker_deques[worker_id];
         // std::function<void()> task;
 
@@ -61,17 +86,24 @@ namespace quill {
     }
 
     void worker_func(void* arg) {
-        int worker_id = (intptr_t)arg;
-        std::cout << "Worker " << worker_id << " started" << std::endl;
-        cout<<shutdown<<endl;
+        worker_id = (intptr_t)arg;
+        // std::cout << "Worker " << worker_id << " started" << std::endl;
+        // cout<<"Shutdown"<<shutdown<<endl;
         while (!shutdown) {
             find_and_execute_task(worker_id);
             // Optionally, add a small sleep to reduce contention
-            usleep(100); 
+            // usleep(100); 
         }
     }
 
-    
+    void end_finish() {
+        // int main_thread_id = 0; // Assuming the main thread has ID 0
+        // cout<<"I am main thread: "<<get_worker_id()<<endl;
+        while (finish_counter != 0) {
+            find_and_execute_task(get_worker_id());
+        }
+        // cout<<"I didnt got a chance"<<endl;
+    }
 }
 
 //     // Finalize the Quill runtime
@@ -139,64 +171,14 @@ namespace quill {
 //     return false;
 // }
 
-// // Worker function for threads other than the main thread
-// void* worker_func(void* arg) {
-//     int worker_id = (intptr_t)arg;
-
-//     while (!shutdown) {
-//         find_and_execute_task(worker_id);
-//         // Optionally, add a small sleep to reduce contention
-//         usleep(100); 
-//     }
-
-//     return nullptr;
-// }
-
-// // Function to find and execute a task
-// void find_and_execute_task(int worker_id) {
-//     WorkerDeque& deque = worker_deques[worker_id];
-//     std::function<void()> task;
-
-//     // Try to pop a task from the local deque
-//     if (deque.pop(task)) {
-//         task();
-//         --finish_counter;
-//     } else {
-//         // Attempt to steal a task from other workers
-//         for (int i = 0; i < num_workers; ++i) {
-//             if (i != worker_id && worker_deques[i].steal(task)) {
-//                 task();
-//                 --finish_counter;
-//                 return;
-//             }
-//         }
-//     }
-// }
-
-// int get_worker_id() {
-//     // Assuming unique worker ID is assigned through pthread
-//     return 0; // Placeholder for actual worker ID retrieval logic
-// }
-
-// // Implementations for async, start_finish, and end_finish
-// void async(std::function<void()> &&lambda) {
-//     int worker_id = get_worker_id();
-//     worker_deques[worker_id].push(std::move(lambda));
-// }
 
 
-// volatile int finish_counter = 0;
-// void start_finish() {
-//     // Handle the start of the finish scope (no recursion allowed)
-//     finish_counter = 0;
-// }
 
-// void end_finish() {
-//     int main_thread_id = 0; // Assuming the main thread has ID 0
 
-//     while (finish_counter != 0) {
-//         find_and_execute_task(main_thread_id);
-//     }
-// }
+
+
+
+
+
 
 // } // namespace quill

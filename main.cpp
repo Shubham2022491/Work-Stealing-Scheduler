@@ -9,8 +9,8 @@ int main() {
 
         // // Perform some asynchronous work
         // quill::async();        // Simulating async work
-        // quill::start_finish(); // Start a finish operation
-        // quill::end_finish();   // End the finish operation
+        quill::start_finish(); // Start a finish operation
+        quill::end_finish();   // End the finish operation
 
         // // Finalize the Quill runtime
         // quill::finalize_runtime();

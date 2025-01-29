@@ -128,23 +128,23 @@ namespace quill {
     void find_and_execute_task(int worker_id) {
         cout << "Worker " << get_worker_id()<< " finding and executing task" << endl;
         // WorkerDeque& deque = worker_deques[worker_id];
-        // std::function<void()> task;
+        std::function<void()> task;
 
-        // // Try to pop a task from the local deque
-        // if (deque.pop(task)) {
-        //     task();
-        //     --finish_counter;
-        // } 
-        // else {
-        //     // Attempt to steal a task from other workers
-        //     for (int i = 0; i < num_workers; ++i) {
-        //         if (i != worker_id && worker_deques[i].steal(task)) {
-        //             task();
-        //             --finish_counter;
-        //             return;
-        //         }
-        //     }
-        // }
+        // Try to pop a task from the local deque
+        if (worker_deques[worker_id].pop(task)) {
+            task();
+            --finish_counter;
+        } 
+        else {
+            // Attempt to steal a task from other workers
+            for (int i = 0; i < num_workers; ++i) {
+                if (i != worker_id && worker_deques[i].steal(task)) {
+                    task();
+                    --finish_counter;
+                    return;
+                }
+            }
+        }
     }
 
     void worker_func(void* arg) {
@@ -166,72 +166,15 @@ namespace quill {
         }
         // cout<<"I didnt got a chance"<<endl;
     }
+    // Finalize the Quill runtime
+    void finalize_quill_runtime() {
+        shutdown = true;
+        for (int i = 1; i < num_workers; ++i) {
+            pthread_join(workers[i], nullptr);  // Join all worker threads
+        }
+    }
 }
 
-//     // Finalize the Quill runtime
-//     void finalize_quill_runtime() {
-//         shutdown = true;
-//         for (int i = 0; i < num_workers; ++i) {
-//             pthread_join(workers[i], nullptr);  // Join all worker threads
-//         }
-//     }
-
-
-// // WorkerDeque constructor initializes the deque
-// template <size_t DEQUE_SIZE>
-// quill::WorkerDeque<DEQUE_SIZE>::WorkerDeque() : head(0), tail(0) {
-//     pthread_mutex_init(&lock, nullptr);
-// }
-
-// // WorkerDeque destructor cleans up mutex resources
-// template <size_t DEQUE_SIZE>
-// quill::WorkerDeque<DEQUE_SIZE>::~WorkerDeque() {
-//     pthread_mutex_destroy(&lock);
-// }
-
-// // Push a task into the deque (private to the worker, LIFO)
-// template <size_t DEQUE_SIZE>
-// void quill::WorkerDeque<DEQUE_SIZE>::push(std::function<void()> task) {
-//     pthread_mutex_lock(&lock);
-//     int next_tail = (tail + 1) % DEQUE_SIZE;  // Circular buffer logic
-//     if (next_tail != head) {  // Check if the deque is not full
-//         tasks[tail] = std::move(task);
-//         tail = next_tail;
-//     } else {
-//         // Handle overflow: optional logging or error handling
-//         std::cerr << "Error: Worker deque overflow\n";
-//     }
-//     pthread_mutex_unlock(&lock);
-// }
-
-// // Steal a task from the top (head) of the deque (FIFO, for other workers)
-// template <size_t DEQUE_SIZE>
-// bool quill::WorkerDeque<DEQUE_SIZE>::steal(std::function<void()> &task) {
-//     pthread_mutex_lock(&lock);
-//     if (head != tail) {  // Check if the deque is not empty
-//         int steal_index = (tail - 1 + DEQUE_SIZE) % DEQUE_SIZE;  // Circular buffer logic
-//         task = std::move(tasks[steal_index]);
-//         tail = steal_index;  // Update the tail after stealing
-//         pthread_mutex_unlock(&lock);
-//         return true;
-//     }
-//     pthread_mutex_unlock(&lock);
-//     return false;
-// }
-
-// // Pop a task from the bottom (tail) of the deque (private to the worker, LIFO)
-// template <size_t DEQUE_SIZE>
-// bool quill::WorkerDeque<DEQUE_SIZE>::pop(std::function<void()> &task) {
-//     pthread_mutex_lock(&lock);
-//     if (head != tail) {  // Check if the deque is not empty
-//         task = std::move(tasks[head]);
-//         head = (head + 1) % DEQUE_SIZE;  // Circular buffer logic
-//         pthread_mutex_unlock(&lock);
-//         return true;
-//     }
-//     pthread_mutex_unlock(&lock);
-//     return false;
-// }
 
 
 
@@ -243,4 +186,8 @@ namespace quill {
 
 
 
-// } // namespace quill
+
+
+
+
+

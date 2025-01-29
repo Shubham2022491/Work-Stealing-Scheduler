@@ -4,13 +4,15 @@
 #include <pthread.h>
 #include <functional>
 #include <vector>
+#include <memory>
 
 namespace quill {
 
 // Define the maximum size for the task array as a template parameter
+// Define the maximum size for the task array as a template parameter
 template <size_t DEQUE_SIZE>
 struct WorkerDeque {
-    std::array<std::function<void()>, DEQUE_SIZE> tasks;  // Fixed-size array for tasks
+    std::array<std::unique_ptr<std::function<void()>>, DEQUE_SIZE> tasks;  // Array of task pointers
     int head;   // Index for the top (head) - accessed by thieves in FIFO order
     int tail;   // Index for the bottom (tail) - private to the worker, LIFO order
     pthread_mutex_t lock; // Mutex for thread-safe operations

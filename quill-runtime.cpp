@@ -5,16 +5,74 @@
 #include <cstdlib>
 #include <stdexcept>
 #include <vector>
+
 #include <pthread.h>
 using namespace std;
 
 namespace quill {
 
     int num_workers = 1; // Default to 1 worker, including master thread
-    std::vector<std::vector<std::function<void()>>> worker_deques;
-    std::vector<pthread_t> workers;
+    constexpr size_t DEQUE_SIZE = 100;  // Example size for all worker deques
+    // Define a fixed-size deque using std::array
+    
     pthread_t master_thread;  // This is the main (master) thread
+    pthread_mutex_t finish_counter_lock = PTHREAD_MUTEX_INITIALIZER;
 
+
+    // Constructor to initialize the deque
+    template <size_t DEQUE_SIZE>
+    WorkerDeque<DEQUE_SIZE>::WorkerDeque() : head(0), tail(0) {
+        pthread_mutex_init(&lock, nullptr);  // Initialize the mutex
+    }
+
+    
+    // Push task to the worker's deque (LIFO order)
+    template <size_t DEQUE_SIZE>
+    void WorkerDeque<DEQUE_SIZE>::push(std::function<void()> task) {
+        pthread_mutex_lock(&lock);  // Lock to ensure thread safety
+
+        if (tail < DEQUE_SIZE) {
+            tasks[tail] = std::make_unique<std::function<void()>>(std::move(task));  // Create task on heap
+            tail++;
+        }
+
+        pthread_mutex_unlock(&lock);  // Unlock after modification
+    }
+
+    // Steal task from the worker's deque (FIFO order)
+    template <size_t DEQUE_SIZE>
+    bool WorkerDeque<DEQUE_SIZE>::steal(std::function<void()> &task) {
+        pthread_mutex_lock(&lock);  // Lock to ensure thread safety
+
+        if (head < tail) {  // Check if there are tasks to steal
+            task = *tasks[head];  // Dereference the pointer to get the task
+            head++;  // Increment the head to move to the next task
+            pthread_mutex_unlock(&lock);  // Unlock after modification
+            return true;
+        }
+
+        pthread_mutex_unlock(&lock);  // Unlock if no task is stolen
+        return false;  // No tasks to steal
+    }
+
+    // Pop task from the worker's own deque (LIFO order)
+    template <size_t DEQUE_SIZE>
+    bool WorkerDeque<DEQUE_SIZE>::pop(std::function<void()> &task) {
+        pthread_mutex_lock(&lock);  // Lock to ensure thread safety
+
+        if (tail > head) {  // Check if there are tasks in the deque
+            tail--;  // Move the tail backward (LIFO)
+            task = *tasks[tail];  // Dereference the pointer to get the task
+            pthread_mutex_unlock(&lock);  // Unlock after modification
+            return true;
+        }
+
+        pthread_mutex_unlock(&lock);  // Unlock if no task to pop
+        return false;  // No tasks to pop
+    }
+
+    std::vector<WorkerDeque<DEQUE_SIZE>> worker_deques;
+    std::vector<pthread_t> workers;
 
     volatile bool shutdown = false;
     void init_runtime() {
@@ -44,24 +102,28 @@ namespace quill {
         finish_counter = 0;
         // cout<<"Finish Counter: "<<finish_counter<<endl;
     }
-    thread_local int worker_id = 0;
+    thread_local int worker_id = 0; // main thread id and declaration too
 
     int get_worker_id() {
-    // Assuming unique worker ID is assigned through pthread
         return worker_id;
-        
     }
 
     
     void async(std::function<void()> &&lambda) {
-        // lock
+        // Lock finish counter (thread-safe operation)
+        pthread_mutex_lock(&finish_counter_lock);
         finish_counter++;
-        // unlock
+        pthread_mutex_unlock(&finish_counter_lock);
 
-        int worker_id = get_worker_id();
-        worker_deques[worker_id].push(std::move(lambda));
+        worker_id = get_worker_id();  // Get the worker ID
 
+        // Dynamically allocate task on the heap
+        std::unique_ptr<std::function<void()>> task_ptr = std::make_unique<std::function<void()>>(std::move(lambda));
+
+        // Push task pointer to the correct worker's deque
+        worker_deques[worker_id].push(std::move(*task_ptr));
     }
+
 
     void find_and_execute_task(int worker_id) {
         cout << "Worker " << get_worker_id()<< " finding and executing task" << endl;

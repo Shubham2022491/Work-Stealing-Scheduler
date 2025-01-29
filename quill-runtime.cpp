@@ -167,12 +167,13 @@ namespace quill {
         // cout<<"I didnt got a chance"<<endl;
     }
     // Finalize the Quill runtime
-    void finalize_quill_runtime() {
+    void finalize_runtime() {
         shutdown = true;
         for (int i = 1; i < num_workers; ++i) {
             pthread_join(workers[i], nullptr);  // Join all worker threads
         }
     }
+    
 }
 
 

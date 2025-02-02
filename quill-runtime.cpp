@@ -12,7 +12,7 @@ using namespace std;
 namespace quill {
 
     int num_workers = 1; 
-    constexpr size_t DEQUE_SIZE = 100;  
+    constexpr size_t DEQUE_SIZE = 50;  
   
 
     pthread_t master_thread;
@@ -37,30 +37,33 @@ namespace quill {
         //     // cout<<"WorkerDeque overflow: Cannot push, deque is full!"<<endl;
         //     throw std::runtime_error("WorkerDeque overflow: Cannot push, deque is full!");
         // }
-        if (tail >= DEQUE_SIZE) {
+        int nextTail = (tail + 1) % DEQUE_SIZE; 
+
+        if (nextTail == head) {  
             std::cerr << "Error: Worker deque is full! Cannot push more tasks." << std::endl;
-            std::exit(EXIT_FAILURE);  
+            std::exit(EXIT_FAILURE); 
         }
 
-        tasks[tail] = task;  
-        tail++;
+        tasks[tail] = task; 
+        tail = nextTail; 
             
     }
 
     
     template <size_t DEQUE_SIZE>
     bool WorkerDeque<DEQUE_SIZE>::steal(std::function<void()> &task) {
-        pthread_mutex_lock(&lock);  
+        pthread_mutex_lock(&lock);
 
-        if (head < tail) {  
-            task = *tasks[head];
-            head++;  
-            pthread_mutex_unlock(&lock);  
-            return true;
+        if (head == tail) { 
+            pthread_mutex_unlock(&lock);
+            return false;
         }
 
+        task = *tasks[head];
+        head = (head + 1) % DEQUE_SIZE; 
+
         pthread_mutex_unlock(&lock);
-        return false;  
+        return true;
     }
 
 
@@ -68,15 +71,16 @@ namespace quill {
     bool WorkerDeque<DEQUE_SIZE>::pop(std::function<void()> &task) {
         pthread_mutex_lock(&lock);
 
-        if (tail > head) { 
-            tail--;   
-            task = *tasks[tail];  
-            pthread_mutex_unlock(&lock);  
-            return true;
+        if (head == tail) { 
+            pthread_mutex_unlock(&lock);
+            return false;
         }
 
-        pthread_mutex_unlock(&lock);  
-        return false;
+        tail = (tail - 1 + DEQUE_SIZE) % DEQUE_SIZE; 
+        task = *tasks[tail]; 
+
+        pthread_mutex_unlock(&lock);
+        return true;
     }
 
     std::vector<WorkerDeque<DEQUE_SIZE>> worker_deques;

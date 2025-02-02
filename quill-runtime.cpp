@@ -31,12 +31,22 @@ namespace quill {
     void WorkerDeque<DEQUE_SIZE>::push(std::function<void()>*task) {
         // pthread_mutex_lock(&lock);  // Lock to ensure thread safety
 
-        if (tail < DEQUE_SIZE) {
-            tasks[tail] = task ;  // Assign the task to the tail
-            tail++;
+        // if (tail < DEQUE_SIZE) {
+        //     tasks[tail] = task ;  // Assign the task to the tail
+        //     tail++;
+        // }
+        // else {
+        //     // cout<<"WorkerDeque overflow: Cannot push, deque is full!"<<endl;
+        //     throw std::runtime_error("WorkerDeque overflow: Cannot push, deque is full!");
+        // }
+        if (tail >= DEQUE_SIZE) {
+            std::cerr << "Error: Worker deque is full! Cannot push more tasks." << std::endl;
+            std::exit(EXIT_FAILURE);  // Terminate the program
         }
 
-        // pthread_mutex_unlock(&lock);  // Unlock after modification
+        tasks[tail] = task;  // Assign the task to the tail
+        tail++;
+            // pthread_mutex_unlock(&lock);  // Unlock after modification
     }
 
     // Steal task from the worker's deque (FIFO order)

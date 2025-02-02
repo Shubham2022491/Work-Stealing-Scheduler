@@ -8,31 +8,28 @@
 
 namespace quill {
 
-// Define the maximum size for the task array as a template parameter
-// Define the maximum size for the task array as a template parameter
+
 template <size_t DEQUE_SIZE>
 struct WorkerDeque {
-    std::array<std::function<void()>*, DEQUE_SIZE> tasks;  // Array of task pointers
-    int head;   // Index for the top (head) - accessed by thieves in FIFO order
-    int tail;   // Index for the bottom (tail) - private to the worker, LIFO order
-    pthread_mutex_t lock; // Mutex for thread-safe operations
+    std::array<std::function<void()>*, DEQUE_SIZE> tasks;  
+    int head;   
+    int tail;   
+    pthread_mutex_t lock; 
 
     WorkerDeque();
-    void push(std::function<void()>* task);  // Push task for the worker (LIFO)
-    bool steal(std::function<void()> &task);  // Steal task from another worker (FIFO)
-    bool pop(std::function<void()> &task);  // Pop task from worker's own deque (LIFO)
+    void push(std::function<void()>* task); 
+    bool steal(std::function<void()> &task); 
+    bool pop(std::function<void()> &task);
 };
 
-    extern int num_workers;                      // Number of worker threads
-    extern std::vector<pthread_t> workers;       // Vector to hold thread handles
-    extern pthread_t master_thread;              // Master thread handle
+    extern int num_workers;                     
+    extern std::vector<pthread_t> workers;    
+    extern pthread_t master_thread;
     
-    // Worker thread related functions
-    // void async(std::function<void()> &&lambda);
-    void worker_func(void* arg);                 // Function to be executed by each worker
-    // void init_runtime();                         // Initialize the Quill runtime (creates threads)
-    // void finalize_runtime();  
+    
+    void worker_func(void* arg);
+  
 
 } // namespace quill
 
-#endif // QUILL_RUNTIME_H
+#endif 

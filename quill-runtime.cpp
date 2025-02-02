@@ -28,11 +28,11 @@ namespace quill {
     
     // Push task to the worker's deque (LIFO order)
     template <size_t DEQUE_SIZE>
-    void WorkerDeque<DEQUE_SIZE>::push(std::function<void()> task) {
+    void WorkerDeque<DEQUE_SIZE>::push(std::function<void()>*task) {
         // pthread_mutex_lock(&lock);  // Lock to ensure thread safety
 
         if (tail < DEQUE_SIZE) {
-            tasks[tail] = std::make_unique<std::function<void()>>(std::move(task));  // Create task on heap
+            tasks[tail] = task ;  // Assign the task to the tail
             tail++;
         }
 
@@ -118,31 +118,33 @@ namespace quill {
 
 
         // Dynamically allocate task on the heap
-        std::unique_ptr<std::function<void()>> task_ptr = std::make_unique<std::function<void()>>(std::move(lambda));
+        std::function<void()>* task_ptr = new std::function<void()>(std::move(lambda));
 
         // Push task pointer to the correct worker's deque
-        worker_deques[get_worker_id()].push(std::move(*task_ptr));
+        worker_deques[get_worker_id()].push(task_ptr);
     }
 
 
     void find_and_execute_task(int worker_id) {
-        cout << "Worker " << get_worker_id()<< " finding and executing task" << endl;
+        // cout << "Worker " << get_worker_id()<< " finding and executing task" << endl;
         // WorkerDeque& deque = worker_deques[worker_id];
         std::function<void()> task;
 
         // Try to pop a task from the local deque
         if (worker_deques[worker_id].pop(task)) {
-            task();
+            task();  // Execute the task
+            // delete &task;  // Deallocate the task
             pthread_mutex_lock(&finish_counter_lock);
             --finish_counter;
-            pthread_mutex_unlock(&finish_counter_lock);
-            task = nullptr;  
+            pthread_mutex_unlock(&finish_counter_lock);  
+            task = nullptr;
         } 
         else {
             // Attempt to steal a task from other workers
             for (int i = 0; i < num_workers; ++i) {
                 if (i != worker_id && worker_deques[i].steal(task)) {
-                    task();
+                    task();  // Execute the task
+                    // delete &task;  // Deallocate the task
                     pthread_mutex_lock(&finish_counter_lock);
                     --finish_counter;
                     pthread_mutex_unlock(&finish_counter_lock);
@@ -175,7 +177,7 @@ namespace quill {
     // Finalize the Quill runtime
     void finalize_runtime() {
         shutdown = true;
-        cout<<"Shutting down"<<endl;
+        // cout<<"Shutting down"<<endl;
         for (int i = 1; i < num_workers; ++i) {
             pthread_join(workers[i], nullptr);  // Join all worker threads
         }

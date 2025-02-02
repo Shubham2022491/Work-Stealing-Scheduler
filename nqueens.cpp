@@ -46,6 +46,9 @@
 
 #include "quill.h"
 #include <sys/time.h>
+#include <cstring>
+#include <cstdio>
+#include <cstdlib>
 
 // Solutions for different board sizes
 int solutions[16] =
@@ -127,7 +130,7 @@ long get_usecs (void)
 int main(int argc, char* argv[])
 {
   quill::init_runtime();
-  int n = 11;
+  int n = 10;
   int i, j;
      
   if(argc > 1) n = atoi(argv[1]);

@@ -12,13 +12,13 @@ namespace quill {
 // Define the maximum size for the task array as a template parameter
 template <size_t DEQUE_SIZE>
 struct WorkerDeque {
-    std::array<std::unique_ptr<std::function<void()>>, DEQUE_SIZE> tasks;  // Array of task pointers
+    std::array<std::function<void()>*, DEQUE_SIZE> tasks;  // Array of task pointers
     int head;   // Index for the top (head) - accessed by thieves in FIFO order
     int tail;   // Index for the bottom (tail) - private to the worker, LIFO order
     pthread_mutex_t lock; // Mutex for thread-safe operations
 
     WorkerDeque();
-    void push(std::function<void()> task);  // Push task for the worker (LIFO)
+    void push(std::function<void()>* task);  // Push task for the worker (LIFO)
     bool steal(std::function<void()> &task);  // Steal task from another worker (FIFO)
     bool pop(std::function<void()> &task);  // Pop task from worker's own deque (LIFO)
 };

@@ -130,7 +130,7 @@ long get_usecs (void)
 int main(int argc, char* argv[])
 {
   quill::init_runtime();
-  int n = 13;
+  int n = 12;
   int i, j;
      
   if(argc > 1) n = atoi(argv[1]);

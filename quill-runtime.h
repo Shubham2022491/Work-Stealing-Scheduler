@@ -25,11 +25,7 @@ struct WorkerDeque {
     extern std::vector<pthread_t> workers;       // Vector to hold thread handles
     extern pthread_t master_thread;              // Master thread handle
     
-    // Worker thread related functions
-    // void async(std::function<void()> &&lambda);
-    void worker_func(void* arg);                 // Function to be executed by each worker
-    // void init_runtime();                         // Initialize the Quill runtime (creates threads)
-    // void finalize_runtime();
+    void worker_func(void* arg);
     void* thread_func(void *args);
 
 } // namespace quill

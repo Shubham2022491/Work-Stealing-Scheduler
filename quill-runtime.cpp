@@ -119,11 +119,7 @@ namespace quill {
 
 
     void find_and_execute_task(int worker_id) {
-        //cout << "Worker " << get_worker_id()<< " finding and executing task" << endl;
-        // WorkerDeque& deque = worker_deques[worker_id];
         std::function<void()> task;
-
-        // Try to pop a task from the local deque
         if (worker_deques[worker_id].pop(task)) {
             task();
             pthread_mutex_lock(&finish_counter_lock);
@@ -134,8 +130,6 @@ namespace quill {
         else {
             // Attempt to steal a task from other workers
             int i = rand()%num_workers;
-            //printf("Random index: %d\n", i);
-            // for (int i = 0; i < num_workers; ++i) {
                 if (i != worker_id && worker_deques[i].steal(task)) {
                     task();
                     task = nullptr;  
@@ -150,12 +144,8 @@ namespace quill {
 
     void worker_func(void* arg) {
         worker_id = (intptr_t)arg;
-        // std::cout << "Worker " << worker_id << " started" << std::endl;
-        // cout<<"Shutdown"<<shutdown<<endl;
         while (!shutdown) {
             find_and_execute_task(worker_id);
-            // Optionally, add a small sleep to reduce contention
-            // usleep(100); 
         }
     }
     

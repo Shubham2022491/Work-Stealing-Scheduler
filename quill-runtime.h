@@ -12,8 +12,8 @@ namespace quill {
 template <size_t DEQUE_SIZE>
 struct WorkerDeque {
     std::array<std::function<void()>*, DEQUE_SIZE> tasks;  
-    int head;   
-    int tail;   
+    volatile int head;   
+    volatile int tail;   
     pthread_mutex_t lock; 
 
     WorkerDeque();

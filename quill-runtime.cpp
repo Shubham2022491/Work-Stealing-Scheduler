@@ -110,7 +110,6 @@ namespace quill {
 
     volatile int finish_counter = 0;
     void start_finish() {
-        \
         finish_counter = 0;
         // cout<<"Finish Counter: "<<finish_counter<<endl;
     }

@@ -145,6 +145,7 @@ namespace quill {
         Task task;
         task.task = task_ptr;
         task.depth = task_depth;
+        // cout << "Task depth: " << task_depth << endl;
         task.execution_time = 0;
         // push the task object into the deque of the worker
         worker_deques[get_worker_id()].push(task);

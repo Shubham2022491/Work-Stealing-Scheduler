@@ -8,19 +8,26 @@
 
 namespace quill {
 
+struct Task {
+    std::function<void()> *task;
+    int depth;
+    double execution_time;
+};
 
 template <size_t DEQUE_SIZE>
 struct WorkerDeque {
-    std::array<std::function<void()>*, DEQUE_SIZE> tasks;  
+    std::array<Task, DEQUE_SIZE> tasks;  
     volatile int head;   
     volatile int tail;   
     pthread_mutex_t lock; 
 
     WorkerDeque();
-    void push(std::function<void()>* task); 
-    bool steal(std::function<void()> &task); 
-    bool pop(std::function<void()> &task);
+    void push(Task task); 
+    bool steal(Task &task); 
+    bool pop(Task &task);
 };
+
+
 
     extern int num_workers;                     
     extern std::vector<pthread_t> workers;    

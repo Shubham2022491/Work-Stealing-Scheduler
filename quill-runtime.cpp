@@ -5,9 +5,21 @@
 #include <cstdlib>
 #include <stdexcept>
 #include <vector>
+#include <chrono> 
 
 #include <pthread.h>
 using namespace std;
+
+// What to do next for depth
+// first wrap task into a struct----> pointer to the function to execute on heap, depth, execution time.
+// struct Task {
+//     std::function<void()> *task;
+//     int depth;
+//     double execution_time;
+// };
+thread_local int task_depth = 0;
+// make a global hasp map for each level average time it takes to complete the task at that level
+// and implement the ATC Algo
 
 namespace quill {
 
@@ -26,17 +38,10 @@ namespace quill {
 
     
     template <size_t DEQUE_SIZE>
-    void WorkerDeque<DEQUE_SIZE>::push(std::function<void()>*task) {
-        // pthread_mutex_lock(&lock);  
+    // the push function will now take a task object, change the signature gpt
 
-        // if (tail < DEQUE_SIZE) {
-        //     tasks[tail] = task ;  
-        //     tail++;
-        // }
-        // else {
-        //     // cout<<"WorkerDeque overflow: Cannot push, deque is full!"<<endl;
-        //     throw std::runtime_error("WorkerDeque overflow: Cannot push, deque is full!");
-        // }
+    void WorkerDeque<DEQUE_SIZE>::push(Task task) {
+        
         int nextTail = (tail + 1) % DEQUE_SIZE; 
 
         if (nextTail == head) {  
@@ -51,7 +56,9 @@ namespace quill {
 
     
     template <size_t DEQUE_SIZE>
-    bool WorkerDeque<DEQUE_SIZE>::steal(std::function<void()> &task) {
+    // the pop function will now take a task object, change the signature gpt
+    
+    bool WorkerDeque<DEQUE_SIZE>::steal(Task &task) {
         pthread_mutex_lock(&lock);
 
         if (head == tail) { 
@@ -59,7 +66,7 @@ namespace quill {
             return false;
         }
 
-        task = *tasks[head];
+        task = tasks[head];
         head = (head + 1) % DEQUE_SIZE; 
 
         pthread_mutex_unlock(&lock);
@@ -68,7 +75,7 @@ namespace quill {
 
 
     template <size_t DEQUE_SIZE>
-    bool WorkerDeque<DEQUE_SIZE>::pop(std::function<void()> &task) {
+    bool WorkerDeque<DEQUE_SIZE>::pop(Task &task) {
         pthread_mutex_lock(&lock);
 
         if (head == tail) { 
@@ -77,7 +84,7 @@ namespace quill {
         }
 
         tail = (tail - 1 + DEQUE_SIZE) % DEQUE_SIZE; 
-        task = *tasks[tail]; 
+        task = tasks[tail]; 
 
         pthread_mutex_unlock(&lock);
         return true;
@@ -129,36 +136,56 @@ namespace quill {
 
 
         std::function<void()>* task_ptr = new std::function<void()>(std::move(lambda));
+        // struct Task {
+        //     std::function<void()> *task;
+        //     int depth;
+        //     double execution_time;
+        // };
+        // now make the object of the task and push it into the deque
+        Task task;
+        task.task = task_ptr;
+        task.depth = task_depth;
+        task.execution_time = 0;
+        // push the task object into the deque of the worker
+        worker_deques[get_worker_id()].push(task);
 
- 
-        worker_deques[get_worker_id()].push(task_ptr);
     }
 
 
     void find_and_execute_task(int worker_id) {
         // cout << "Worker " << get_worker_id()<< " finding and executing task" << endl;
         // WorkerDeque& deque = worker_deques[worker_id];
-        std::function<void()> task;
-
+        Task task;
 
         if (worker_deques[worker_id].pop(task)) {
-            task();  
+            // give a code that starts a timer here to check the execution time of the task
+            task_depth = task.depth + 1;
+            auto start_time = std::chrono::high_resolution_clock::now();
+            (*task.task)();
+            auto end_time = std::chrono::high_resolution_clock::now();
+            task.execution_time = std::chrono::duration<double>(end_time - start_time).count();
+
+            
             // delete &task;  
             pthread_mutex_lock(&finish_counter_lock);
             --finish_counter;
             pthread_mutex_unlock(&finish_counter_lock);  
-            task = nullptr;
+            task.task = nullptr;
         } 
         else {
            
             for (int i = 0; i < num_workers; ++i) {
                 if (i != worker_id && worker_deques[i].steal(task)) {
-                    task();
+                    task_depth = task.depth + 1;
+                    auto start_time = std::chrono::high_resolution_clock::now();
+                    (*task.task)();
+                    auto end_time = std::chrono::high_resolution_clock::now();
+                    task.execution_time = std::chrono::duration<double>(end_time - start_time).count();
                     // delete &task;  
                     pthread_mutex_lock(&finish_counter_lock);
                     --finish_counter;
                     pthread_mutex_unlock(&finish_counter_lock);
-                    task = nullptr;  
+                    task.task = nullptr;  
                     return;
                 }
             }

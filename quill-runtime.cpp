@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <vector>
 #include <chrono> 
+#include <map>
 
 #include <pthread.h>
 using namespace std;
@@ -17,19 +18,38 @@ using namespace std;
 //     int depth;
 //     double execution_time;
 // };
-thread_local int task_depth = 0;
+
 // make a global hasp map for each level average time it takes to complete the task at that level
 // and implement the ATC Algo
 
 namespace quill {
 
+    thread_local int task_depth = 0;
     int num_workers = 1; 
     constexpr size_t DEQUE_SIZE = 50;  
   
 
     pthread_t master_thread;
     pthread_mutex_t finish_counter_lock = PTHREAD_MUTEX_INITIALIZER;
+    pthread_mutex_t task_depth_lock = PTHREAD_MUTEX_INITIALIZER;
 
+    // make a global hasp map for each level average time it takes to complete the task at that level
+    // and implement the ATC Algo
+    std::map<int, double> avg_time_per_level;
+    // make a function that takes index of the level and the execution time of the task and updates the average time of that level
+    void update_avg_time(int level, double execution_time) {
+        if (avg_time_per_level.find(level) != avg_time_per_level.end()) {
+            // apply locks
+            pthread_mutex_lock(&task_depth_lock);
+            avg_time_per_level[level] = (avg_time_per_level[level] + execution_time) / 2;
+            pthread_mutex_unlock(&task_depth_lock);
+        }
+        else {
+            pthread_mutex_lock(&task_depth_lock);
+            avg_time_per_level[level] = execution_time;
+            pthread_mutex_unlock(&task_depth_lock);
+        }
+    }
 
     template <size_t DEQUE_SIZE>
     WorkerDeque<DEQUE_SIZE>::WorkerDeque() : head(0), tail(0) {
@@ -165,7 +185,7 @@ namespace quill {
             (*task.task)();
             auto end_time = std::chrono::high_resolution_clock::now();
             task.execution_time = std::chrono::duration<double>(end_time - start_time).count();
-
+            update_avg_time(task.depth, task.execution_time);
             
             // delete &task;  
             pthread_mutex_lock(&finish_counter_lock);
@@ -182,6 +202,7 @@ namespace quill {
                     (*task.task)();
                     auto end_time = std::chrono::high_resolution_clock::now();
                     task.execution_time = std::chrono::duration<double>(end_time - start_time).count();
+                    update_avg_time(task.depth, task.execution_time);
                     // delete &task;  
                     pthread_mutex_lock(&finish_counter_lock);
                     --finish_counter;
@@ -217,6 +238,13 @@ namespace quill {
         for (int i = 1; i < num_workers; ++i) {
             pthread_join(workers[i], nullptr);
         }
+        std::cout << "Average time per level: ";
+        for (const std::pair<int, double>p : avg_time_per_level) {
+            std::cout << "{ " << p.first << " : " << p.second << " } ";
+        }
+        std::cout << std::endl;
+
+
     }
     
 }

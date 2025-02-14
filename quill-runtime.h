@@ -14,6 +14,7 @@ struct Task {
     double execution_time;
 };
 
+
 template <size_t DEQUE_SIZE>
 struct WorkerDeque {
     std::array<Task, DEQUE_SIZE> tasks;  

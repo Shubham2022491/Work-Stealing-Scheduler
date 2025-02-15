@@ -58,7 +58,7 @@ namespace quill {
 
     
     template <size_t DEQUE_SIZE>
-    // the push function will now take a task object, change the signature gpt
+    // the push function will now take a task object
 
     void WorkerDeque<DEQUE_SIZE>::push(Task task) {
         
@@ -76,7 +76,7 @@ namespace quill {
 
     
     template <size_t DEQUE_SIZE>
-    // the pop function will now take a task object, change the signature gpt
+    // the pop function will now take a task object
     
     bool WorkerDeque<DEQUE_SIZE>::steal(Task &task) {
         pthread_mutex_lock(&lock);
@@ -149,16 +149,12 @@ namespace quill {
 
     
     void async(std::function<void()> &&lambda) {
-
-
-
         // if level closed then aggregate the task and finish its execution
         // else estimate the average time to complete the task at that level and then decide whether to execute the task or not
         // if there is no average time at that level then push the task into the deque of the worker
         // else check the average time of that level and then decide whether to execute the task or not
         // if the average time is less than the estimated time then push the task into the deque of the worker
         // else execute the task
-         
         if (avg_time_per_level.find(task_depth) != avg_time_per_level.end()) {
             if (avg_time_per_level[task_depth] > 0.01) {
                 pthread_mutex_lock(&finish_counter_lock);
@@ -188,8 +184,6 @@ namespace quill {
             worker_deques[get_worker_id()].push(task);
             return;
         }
-     
-
     }
 
 

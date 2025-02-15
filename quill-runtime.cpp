@@ -149,26 +149,46 @@ namespace quill {
 
     
     void async(std::function<void()> &&lambda) {
+
+
+
+        // if level closed then aggregate the task and finish its execution
+        // else estimate the average time to complete the task at that level and then decide whether to execute the task or not
+        // if there is no average time at that level then push the task into the deque of the worker
+        // else check the average time of that level and then decide whether to execute the task or not
+        // if the average time is less than the estimated time then push the task into the deque of the worker
+        // else execute the task
+         
+        if (avg_time_per_level.find(task_depth) != avg_time_per_level.end()) {
+            if (avg_time_per_level[task_depth] > 0.01) {
+                pthread_mutex_lock(&finish_counter_lock);
+                finish_counter++;
+                pthread_mutex_unlock(&finish_counter_lock);
+                std::function<void()>* task_ptr = new std::function<void()>(std::move(lambda));
+                Task task;
+                task.task = task_ptr;
+                task.depth = task_depth;
+                task.execution_time = 0;
+                worker_deques[get_worker_id()].push(task);
+                return;
+            }
+            else{
+                lambda();
+            }
+        }
+        else {
+            pthread_mutex_lock(&finish_counter_lock);
+            finish_counter++;
+            pthread_mutex_unlock(&finish_counter_lock);
+            std::function<void()>* task_ptr = new std::function<void()>(std::move(lambda));
+            Task task;
+            task.task = task_ptr;
+            task.depth = task_depth;
+            task.execution_time = 0;
+            worker_deques[get_worker_id()].push(task);
+            return;
+        }
      
-        pthread_mutex_lock(&finish_counter_lock);
-        finish_counter++;
-        pthread_mutex_unlock(&finish_counter_lock);
-
-
-        std::function<void()>* task_ptr = new std::function<void()>(std::move(lambda));
-        // struct Task {
-        //     std::function<void()> *task;
-        //     int depth;
-        //     double execution_time;
-        // };
-        // now make the object of the task and push it into the deque
-        Task task;
-        task.task = task_ptr;
-        task.depth = task_depth;
-        // cout << "Task depth: " << task_depth << endl;
-        task.execution_time = 0;
-        // push the task object into the deque of the worker
-        worker_deques[get_worker_id()].push(task);
 
     }
 

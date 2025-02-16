@@ -11,16 +11,6 @@
 #include <pthread.h>
 using namespace std;
 
-// What to do next for depth
-// first wrap task into a struct----> pointer to the function to execute on heap, depth, execution time.
-// struct Task {
-//     std::function<void()> *task;
-//     int depth;
-//     double execution_time;
-// };
-
-// make a global hasp map for each level average time it takes to complete the task at that level
-// and implement the ATC Algo
 
 namespace quill {
 
@@ -31,24 +21,33 @@ namespace quill {
 
     pthread_t master_thread;
     pthread_mutex_t finish_counter_lock = PTHREAD_MUTEX_INITIALIZER;
-    pthread_mutex_t task_depth_lock = PTHREAD_MUTEX_INITIALIZER;
+    std::map<int, double> avg_time_per_level;  
+    std::map<int, pthread_mutex_t> level_locks;  
+    
 
-    // make a global hasp map for each level average time it takes to complete the task at that level
-    // and implement the ATC Algo
-    std::map<int, double> avg_time_per_level;
-    // make a function that takes index of the level and the execution time of the task and updates the average time of that level
+    void init_mutex_for_level(int level) {
+        static pthread_mutex_t global_mutex = PTHREAD_MUTEX_INITIALIZER;
+        
+        pthread_mutex_lock(&global_mutex);  // Lock global mutex to ensure safe initialization
+        if (level_locks.find(level) == level_locks.end()) {
+            pthread_mutex_t new_mutex = PTHREAD_MUTEX_INITIALIZER;
+            level_locks[level] = new_mutex;  // Assign new mutex for the level
+        }
+        pthread_mutex_unlock(&global_mutex);
+    }
+
     void update_avg_time(int level, double execution_time) {
+        init_mutex_for_level(level);  // Ensure mutex exists for the level
+
+        pthread_mutex_lock(&level_locks[level]);  // Lock mutex for this level
+
         if (avg_time_per_level.find(level) != avg_time_per_level.end()) {
-            // apply locks
-            pthread_mutex_lock(&task_depth_lock);
-            avg_time_per_level[level] = (avg_time_per_level[level] + execution_time) / 2;
-            pthread_mutex_unlock(&task_depth_lock);
-        }
-        else {
-            pthread_mutex_lock(&task_depth_lock);
+            avg_time_per_level[level] = (avg_time_per_level[level] + execution_time) / 2.0;
+        } else {
             avg_time_per_level[level] = execution_time;
-            pthread_mutex_unlock(&task_depth_lock);
         }
+
+        pthread_mutex_unlock(&level_locks[level]);  // Unlock after updating
     }
 
     template <size_t DEQUE_SIZE>
@@ -124,8 +123,7 @@ namespace quill {
         }
         worker_deques.resize(num_workers);
         workers.resize(num_workers);
-        // master_thread = pthread_self(); 
-
+        
         for (int i = 1; i < num_workers; ++i) {
             if (pthread_create(&workers[i], nullptr, (void*(*)(void*))worker_func, (void*)(intptr_t)i) != 0) {
                 throw std::runtime_error("Failed to create worker thread");

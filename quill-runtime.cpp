@@ -70,28 +70,35 @@ namespace quill {
 
         int nextTail = (tail + 1) % DEQUE_SIZE;
 
+        printf("Push ID: %d, Worker ID: %d\n", request_box, get_worker_id());
+
         if (nextTail == head) {  
             std::cerr << "Error: Worker deque is full! Cannot push more tasks." << std::endl;
             std::exit(EXIT_FAILURE); 
         }
 
-        printf("Push ID: %d, Worker ID: %d\n", request_box, get_worker_id());
 
         // Check if there's a pending request for a task
         if (request_box != -1) {
+
             int target_worker_id = request_box;
-            pthread_mutex_lock(&worker_deques[target_worker_id].lock);  // Lock the target deque's mutex
+            pthread_mutex_lock(&lock);
+            request_box = -1;  // Reset the request box
+            pthread_mutex_unlock(&lock);
+
+            //pthread_mutex_lock(&worker_deques[target_worker_id].lock);  // Lock the target deque's mutex
 
             // Assign the task to the requesting worker's mailbox
-            worker_deques[target_worker_id].mail_box = task;
-            request_box = -1;  // Reset the request box
+            worker_deques[target_worker_id].mail_box = tasks[head];
+            head = (head + 1) % DEQUE_SIZE; 
             pthread_cond_signal(&worker_deques[target_worker_id].condition_wait);
-            pthread_mutex_unlock(&worker_deques[target_worker_id].lock);
+            //pthread_mutex_unlock(&worker_deques[target_worker_id].lock);
             return; 
         }
-
-        tasks[tail] = task;
-        tail = nextTail;
+        else{
+            tasks[tail] = task;
+            tail = nextTail;
+        }
 
         // pthread_mutex_unlock(&lock);  // Unlock the current deque's mutex
     }
@@ -112,19 +119,19 @@ namespace quill {
         pthread_mutex_lock(&lock);  // Lock the target deque's mutex
         // Set the request box to notify the other worker
         // Wait until a task is pushed into the mailbox
-        printf("Steal ID: %d, Worker ID: %d, Request box status: %d, Head:%d, Tail: %d\n", i, get_worker_id(), worker_deques[i].request_box, worker_deques[i].head, worker_deques[i].tail);
         
         while (mail_box.task == nullptr) {  // Check if the mailbox is empty
             pthread_cond_wait(&condition_wait, &lock);
             //printf("Stuck in a loop\n");
         }
+        printf("Steal ID: %d, Worker ID: %d, Request box status: %d, Head:%d, Tail: %d\n", i, get_worker_id(), worker_deques[i].request_box, worker_deques[i].head, worker_deques[i].tail);
 
         printf("Steal Successs\n");
         // Steal the task from the mailbox
         pthread_mutex_unlock(&lock);  // Unlock the target deque's mutex
 
         task = mail_box;
-        mail_box.task = nullptr;  // Reset the mailbox
+        mail_box = {nullptr,0,0};  // Reset the mailbox
 
         return true;
     }
@@ -138,24 +145,29 @@ namespace quill {
             return false;
         }
 
-        tail = (tail - 1 + DEQUE_SIZE) % DEQUE_SIZE; 
-        task = tasks[tail]; 
         printf("Pop ID: %d, Worker ID: %d\n", request_box, get_worker_id());
 
         if (request_box!=-1){
     
             // Signal the requesting worker
             int target_worker_id = request_box;
-            pthread_mutex_lock(&worker_deques[target_worker_id].lock);
-            worker_deques[target_worker_id].mail_box = task;
-            request_box = -1;
+            pthread_mutex_lock(&lock);
+            request_box = -1;  // Reset the request box
+            pthread_mutex_unlock(&lock);
+            //pthread_mutex_lock(&worker_deques[target_worker_id].lock);
+            worker_deques[target_worker_id].mail_box = tasks[head];
+            head = (head + 1) % DEQUE_SIZE; 
+            //request_box = -1;
             pthread_cond_signal(&worker_deques[target_worker_id].condition_wait);
-            pthread_mutex_unlock(&worker_deques[target_worker_id].lock);
-
+            //pthread_mutex_unlock(&worker_deques[target_worker_id].lock);
+            return true;
         }
+        tail = (tail - 1 + DEQUE_SIZE) % DEQUE_SIZE; 
+        task = tasks[tail]; 
+        return true;
+        
 
         //pthread_mutex_unlock(&lock);
-        return true;
     }
 
     volatile bool shutdown = false;

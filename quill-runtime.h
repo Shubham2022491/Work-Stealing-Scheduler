@@ -5,29 +5,49 @@
 #include <functional>
 #include <vector>
 #include <memory>
+#include <array>
 
 namespace quill {
 
+    struct Task {
+        std::function<void()> *task;
+        int depth;
+        double execution_time;
+    
+        // Constructor for Task
+        Task(std::function<void()>* t = nullptr, int d = 0, double exec_time = 0.0)
+            : task(t), depth(d), execution_time(exec_time) {}
+    };
+    
+
+
 template <size_t DEQUE_SIZE>
 struct WorkerDeque {
-    std::array<std::unique_ptr<std::function<void()>>, DEQUE_SIZE> tasks;  // Array of task pointers
-    int head;   // Index for the top (head) - accessed by thieves in FIFO order
-    int tail;   // Index for the bottom (tail) - private to the worker, LIFO order
-    pthread_mutex_t lock; // Mutex for thread-safe operations
+    std::array<Task, DEQUE_SIZE> tasks;  
+    volatile int head;   
+    volatile int tail;   
+    pthread_mutex_t lock; 
+    pthread_cond_t condition_wait;
+    volatile int request_box;
+    Task mail_box;
 
     WorkerDeque();
-    void push(std::function<void()> task);  // Push task for the worker (LIFO)
-    bool steal(std::function<void()> &task);  // Steal task from another worker (FIFO)
-    bool pop(std::function<void()> &task);  // Pop task from worker's own deque (LIFO)
+    void push(Task task); 
+    bool steal(Task &task, int i); 
+    bool pop(Task &task);
+    
 };
 
-    extern int num_workers;                      // Number of worker threads
-    extern std::vector<pthread_t> workers;       // Vector to hold thread handles
-    extern pthread_t master_thread;              // Master thread handle
+
+
+    extern int num_workers;                     
+    extern std::vector<pthread_t> workers;    
+    extern pthread_t master_thread;
+    
     
     void worker_func(void* arg);
-    void* thread_func(void *args);
+  
 
 } // namespace quill
 
-#endif // QUILL_RUNTIME_H
+#endif 

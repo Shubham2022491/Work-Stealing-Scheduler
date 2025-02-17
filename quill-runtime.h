@@ -27,6 +27,9 @@ struct WorkerDeque {
     volatile int head;   
     volatile int tail;   
     pthread_mutex_t lock; 
+    
+    volatile bool flag = false; 
+    
     pthread_cond_t condition_wait;
     volatile int request_box;
     Task mail_box;

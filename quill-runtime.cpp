@@ -21,6 +21,7 @@ namespace quill {
 
     pthread_t master_thread;
     pthread_mutex_t finish_counter_lock = PTHREAD_MUTEX_INITIALIZER;
+    // pthread_mutex_t temp_mut =  PTHREAD_MUTEX_INITIALIZER;
     std::map<int, double> avg_time_per_level;  
     std::map<int, pthread_mutex_t> level_locks;  
     std::vector<WorkerDeque<DEQUE_SIZE>> worker_deques;
@@ -70,7 +71,7 @@ namespace quill {
 
         int nextTail = (tail + 1) % DEQUE_SIZE;
 
-        //printf("Push ID: %d, Worker ID: %d, Head:%d, Tail:%d\n", request_box, get_worker_id(), head, tail);
+        // printf("Push ID: %d, Worker ID: %d, Head:%d, Tail:%d\n", request_box, get_worker_id(), head, tail);
 
         if (nextTail == head) {  
             std::cerr << "Error: Worker deque is full! Cannot push more tasks." << std::endl;
@@ -79,6 +80,8 @@ namespace quill {
 
 
         // Check if there's a pending request for a task
+
+        // printf("Request box: %d\n", request_box);
         if (request_box != -1) {
 
             int target_worker_id = request_box;
@@ -88,19 +91,21 @@ namespace quill {
 
             // Assign the task to the requesting worker's mailbox
 
-            if(head==tail) worker_deques[target_worker_id].mail_box = task;
+            if(head==tail) {
+                worker_deques[target_worker_id].mail_box = task;
+            }
             else{
                 worker_deques[target_worker_id].mail_box = tasks[head];
                 head = (head + 1) % DEQUE_SIZE;
                 tasks[tail] = task;
                 tail = nextTail;
             }
-            pthread_cond_signal(&worker_deques[target_worker_id].condition_wait);
+            // pthread_cond_signal(&worker_deques[target_worker_id].condition_wait);
             //pthread_mutex_unlock(&worker_deques[target_worker_id].lock);
 
-            pthread_mutex_lock(&lock);
+            // pthread_mutex_lock(&lock);
             request_box = -1;  // Reset the request box
-            pthread_mutex_unlock(&lock);
+            // pthread_mutex_unlock(&lock);
             //return; 
         }
         else{
@@ -111,35 +116,40 @@ namespace quill {
     }
 
     template <size_t DEQUE_SIZE>
-    bool WorkerDeque<DEQUE_SIZE>::steal(Task &task, int i) {
+    bool WorkerDeque<DEQUE_SIZE>::steal(Task &task, int worker_id) {
         
-        if (worker_deques[i].head == worker_deques[i].tail || worker_deques[i].request_box!=-1) {
+        if (head == tail || request_box!=-1) {
             //pthread_mutex_unlock(&worker_deques[i].lock);  // Unlock the target deque's mutex
             return false;
         }
 
-        pthread_mutex_lock(&worker_deques[i].lock); 
-        int tim = get_worker_id();
-        worker_deques[i].request_box = tim;
-        pthread_mutex_unlock(&worker_deques[i].lock); 
+        pthread_mutex_lock(&lock); 
+        // int tim = get_worker_id();
+        request_box = worker_id;
+        // pthread_mutex_unlock(&lock); 
+        // printf("Steal Request box:%d\n", request_box);
 
-        pthread_mutex_lock(&lock);  // Lock the target deque's mutex
+        // pthread_mutex_lock(&worker_deques[worker_id].lock);  // Lock the target deque's mutex
         // Set the request box to notify the other worker
         // Wait until a task is pushed into the mailbox
-        
-        while (mail_box.task == nullptr) {  // Check if the mailbox is empty
-            pthread_cond_wait(&condition_wait, &lock);
-            //printf("Stuck in a loop\n");
+        // printf("HMMMMM");
+        while (worker_deques[worker_id].mail_box.task == nullptr) {  // Check if the mailbox is empty
+            if (worker_deques[worker_id].flag){
+                return false;
+            }
+            // printf("I am before cond_wait");
+            // pthread_cond_wait(&worker_deques[worker_id].condition_wait, &temp_mut);
+            // printf("Stuck in a loop\n");
         }
-        //printf("Steal ID: %d, Worker ID: %d, Request box status: %d, Head:%d, Tail: %d\n", i, get_worker_id(), worker_deques[i].request_box, worker_deques[i].head, worker_deques[i].tail);
+        // printf("Steal ID: %d, Worker ID: %d, Request box status: %d, Head:%d, Tail: %d\n", worker_id, get_worker_id(), request_box, head, tail);
 
         //printf("Steal Successs\n");
         // Steal the task from the mailbox
         pthread_mutex_unlock(&lock);  // Unlock the target deque's mutex
 
-        task = mail_box;
-        mail_box = {nullptr,0,0};  // Reset the mailbox
-
+        task = worker_deques[worker_id].mail_box;
+        worker_deques[worker_id].mail_box = {nullptr,0,0.0};  // Reset the mailbox
+        // printf("Returning true");
         return true;
     }
 
@@ -152,7 +162,7 @@ namespace quill {
             return false;
         }
 
-        //printf("Pop ID: %d, Worker ID: %d, Head:%d, Tail:%d\n", request_box, get_worker_id(), head, tail);
+        // printf("Pop ID: %d, Worker ID: %d, Head:%d, Tail:%d\n", request_box, get_worker_id(), head, tail);
 
         if (request_box!=-1){
     
@@ -162,12 +172,12 @@ namespace quill {
             worker_deques[target_worker_id].mail_box = tasks[head];
             head = (head + 1) % DEQUE_SIZE; 
             //request_box = -1;
-            pthread_cond_signal(&worker_deques[target_worker_id].condition_wait);
+            // pthread_cond_signal(&worker_deques[target_worker_id].condition_wait);
             //pthread_mutex_unlock(&worker_deques[target_worker_id].lock);
 
-            pthread_mutex_lock(&lock);
+            // pthread_mutex_lock(&lock);
             request_box = -1;  // Reset the request box
-            pthread_mutex_unlock(&lock);
+            // pthread_mutex_unlock(&lock);
 
             if(head==tail) return false;
             else{
@@ -273,7 +283,7 @@ namespace quill {
         } 
         else {
                 int i = rand() % num_workers;
-                if (i != worker_id && worker_deques[worker_id].steal(task, i)) {
+                if (i != worker_id && worker_deques[i].steal(task, worker_id)) {
                     task_depth = task.depth + 1;
                     auto start_time = std::chrono::high_resolution_clock::now();
                     (*task.task)();
@@ -310,8 +320,16 @@ namespace quill {
     
     void finalize_runtime() {
         shutdown = true;
-        // cout<<"Shutting down"<<endl;
+        cout<<"Shutting down"<<endl;
+        for (int i = 0; i < num_workers; ++i) {
+            // printf("Finish runtime: %d\n", i);
+            worker_deques[i].flag = true;
+            // pthread_cond_signal(&worker_deques[i].condition_wait);
+            // pthread_join(workers[i], nullptr);
+        }
         for (int i = 1; i < num_workers; ++i) {
+            // pthread_cond_signal(&worker_deques[i].condition_wait);
+            printf("l%d\n",i);
             pthread_join(workers[i], nullptr);
         }
         std::cout << "Average time per level: ";

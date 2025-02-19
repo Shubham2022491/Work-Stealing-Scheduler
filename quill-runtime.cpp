@@ -91,20 +91,27 @@ namespace quill {
 
             // Assign the task to the requesting worker's mailbox
 
+
+            pthread_mutex_lock(&lock); 
             if(head==tail) {
                 worker_deques[target_worker_id].mail_box = task;
             }
             else{
                 worker_deques[target_worker_id].mail_box = tasks[head];
-                head = (head + 1) % DEQUE_SIZE;
-                tasks[tail] = task;
-                tail = nextTail;
             }
-            // pthread_cond_signal(&worker_deques[target_worker_id].condition_wait);
-            //pthread_mutex_unlock(&worker_deques[target_worker_id].lock);
+            pthread_cond_signal(&worker_deques[target_worker_id].condition_wait);
+            request_box = -1;  // Reset the request box
+            pthread_mutex_unlock(&lock);
+            
+
+            if(head!=tail){
+            head = (head + 1) % DEQUE_SIZE;
+            tasks[tail] = task;
+            tail = nextTail;
+            }
 
             // pthread_mutex_lock(&lock);
-            request_box = -1;  // Reset the request box
+            // request_box = -1;  // Reset the request box
             // pthread_mutex_unlock(&lock);
             //return; 
         }
@@ -123,33 +130,41 @@ namespace quill {
             return false;
         }
 
-        pthread_mutex_lock(&lock); 
-        // int tim = get_worker_id();
-        request_box = worker_id;
+        // pthread_mutex_lock(&lock); 
+        // // int tim = get_worker_id();
+        // request_box = worker_id;
+        // pthread_mutex_unlock(&lock);
         // pthread_mutex_unlock(&lock); 
         // printf("Steal Request box:%d\n", request_box);
 
-        // pthread_mutex_lock(&worker_deques[worker_id].lock);  // Lock the target deque's mutex
+        pthread_mutex_lock(&worker_deques[worker_id].lock);  // Lock the target deque's mutex
+        request_box = worker_id;
         // Set the request box to notify the other worker
         // Wait until a task is pushed into the mailbox
         // printf("HMMMMM");
-        while (worker_deques[worker_id].mail_box.task == nullptr) {  // Check if the mailbox is empty
-            if (worker_deques[worker_id].flag){
-                return false;
-            }
-            // printf("I am before cond_wait");
-            // pthread_cond_wait(&worker_deques[worker_id].condition_wait, &temp_mut);
-            // printf("Stuck in a loop\n");
+        pthread_cond_wait(&worker_deques[worker_id].condition_wait, &worker_deques[worker_id].lock);  // Check if the mailbox is empty
+        if (worker_deques[worker_id].mail_box.task == nullptr) {
+            pthread_mutex_unlock(&worker_deques[worker_id].lock);
+            return false;  // Nothing was sent
         }
+    
+            // if (worker_deques[worker_id].flag){
+            //     printf("HOW\n");
+            //     return false;
+            // }
+            // printf("I am before cond_wait");
+            // pthread_cond_wait(&worker_deques[worker_id].condition_wait, &worker_deques[worker_id].lock);
+            // printf("Cond_Wait value:%d Thread:%d", val, worker_id);
+        // printf("Stuck in a loop\n");
         // printf("Steal ID: %d, Worker ID: %d, Request box status: %d, Head:%d, Tail: %d\n", worker_id, get_worker_id(), request_box, head, tail);
 
         //printf("Steal Successs\n");
         // Steal the task from the mailbox
-        pthread_mutex_unlock(&lock);  // Unlock the target deque's mutex
-
+          // Unlock the target deque's mutex
+        // printf("Returning true");
+        pthread_mutex_unlock(&worker_deques[worker_id].lock);  // Unlock
         task = worker_deques[worker_id].mail_box;
         worker_deques[worker_id].mail_box = {nullptr,0,0.0};  // Reset the mailbox
-        // printf("Returning true");
         return true;
     }
 
@@ -167,16 +182,20 @@ namespace quill {
         if (request_box!=-1){
     
             // Signal the requesting worker
-            int target_worker_id = request_box;
-            //pthread_mutex_lock(&worker_deques[target_worker_id].lock);
-            worker_deques[target_worker_id].mail_box = tasks[head];
-            head = (head + 1) % DEQUE_SIZE; 
             //request_box = -1;
-            // pthread_cond_signal(&worker_deques[target_worker_id].condition_wait);
-            //pthread_mutex_unlock(&worker_deques[target_worker_id].lock);
+            int target_worker_id = request_box;
+
+            //pthread_mutex_lock(&worker_deques[target_worker_id].lock);
+            pthread_mutex_lock(&lock);
+            worker_deques[target_worker_id].mail_box = tasks[head];
+            pthread_cond_signal(&worker_deques[target_worker_id].condition_wait);
+            request_box = -1;
+            pthread_mutex_unlock(&lock);
+
+            head = (head + 1) % DEQUE_SIZE; 
 
             // pthread_mutex_lock(&lock);
-            request_box = -1;  // Reset the request box
+            
             // pthread_mutex_unlock(&lock);
 
             if(head==tail) return false;
@@ -324,12 +343,16 @@ namespace quill {
         for (int i = 0; i < num_workers; ++i) {
             // printf("Finish runtime: %d\n", i);
             worker_deques[i].flag = true;
-            // pthread_cond_signal(&worker_deques[i].condition_wait);
+
+            // pthread_mutex_lock(&worker_deques[i].lock); 
+            // printf("Cond_Val %d\n", worker_deques[i].condition_wait);
+            pthread_cond_signal(&worker_deques[i].condition_wait);
+            // pthread_mutex_unlock(&worker_deques[i].lock); 
             // pthread_join(workers[i], nullptr);
         }
         for (int i = 1; i < num_workers; ++i) {
             // pthread_cond_signal(&worker_deques[i].condition_wait);
-            printf("l%d\n",i);
+            // printf("l%d\n",i);
             pthread_join(workers[i], nullptr);
         }
         std::cout << "Average time per level: ";
@@ -342,4 +365,3 @@ namespace quill {
     }
     
 }
-

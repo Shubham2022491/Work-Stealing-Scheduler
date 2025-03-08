@@ -32,7 +32,7 @@ namespace quill {
     std::vector<WorkerDeque<DEQUE_SIZE>> worker_deques;
     std::vector<pthread_t> workers;
     std::vector<int*> numa_memory(num_numa_domains);
-    std::vector<int> core_to_numa_mapping(NUM_WORKERS);
+    std::vector<int> core_to_numa_mapping(num_workers);
 
 
     thread_local int worker_id = 0; 
@@ -251,7 +251,7 @@ namespace quill {
             core_to_numa_mapping[worker_id] = numa_node;
             numa_domains[numa_node].push_back(worker_id);
             // Allocate deque in the same NUMA domain as the core
-            worker_deques[worker_id] = numa_alloc<WorkerDeque>(1, numa_node);
+            worker_deques[worker_id] = *numa_alloc<WorkerDeque<DEQUE_SIZE>>(1, numa_node);
     
             std::cout << "Worker " << worker_id << " assigned to core " << core_id
                       << " on NUMA node " << numa_node << std::endl;
@@ -439,7 +439,7 @@ namespace quill {
             // Now using this Numa_node_of_worker select randomly any id 
             int steal_worker_id = -1;
             while(steal_worker_id==-1 || steal_worker_id == worker_id){
-                steal_worker_id = numa_domains[Numa_node_of_worker][rand() % numa_domains[Numa_node_of_worker].size()]
+                steal_worker_id = numa_domains[Numa_node_of_worker][rand() % numa_domains[Numa_node_of_worker].size()];
             }
             if (worker_deques[steal_worker_id].steal(task, worker_id)) {
                 task_depth = task.depth + 1;

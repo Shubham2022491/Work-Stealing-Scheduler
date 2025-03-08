@@ -26,6 +26,9 @@ namespace quill {
     // pthread_mutex_t temp_mut =  PTHREAD_MUTEX_INITIALIZER;
     std::map<int, double> avg_time_per_level;  
     std::map<int, pthread_mutex_t> level_locks;  
+    // make a map where key will be integer(NUMA nodes) and the value will be a vector containing core_ids(int)
+    std::map<int, std::vector<int>> numa_domains; // map of NUMA domains
+
     std::vector<WorkerDeque<DEQUE_SIZE>> worker_deques;
     std::vector<pthread_t> workers;
     std::vector<int*> numa_memory(num_numa_domains);
@@ -246,7 +249,7 @@ namespace quill {
     
             // Store the NUMA node for this core
             core_to_numa_mapping[worker_id] = numa_node;
-    
+            numa_domains[numa_node].push_back(worker_id);
             // Allocate deque in the same NUMA domain as the core
             worker_deques[worker_id] = numa_alloc<WorkerDeque>(1, numa_node);
     
@@ -296,7 +299,7 @@ namespace quill {
         worker_deques.resize(total_workers);
         workers.resize(total_workers);
         allocate_numa_memory();
-        
+        setup_worker_deques();
         for (int i = 1; i <total_workers; ++i) {
             if (pthread_create(&workers[i], nullptr, (void*(*)(void*))worker_func, (void*)(intptr_t)i) != 0) {
                 throw std::runtime_error("Failed to create worker thread");
@@ -313,15 +316,34 @@ namespace quill {
     }
 
     
-    void async(std::function<void()> &&lambda) {
+    void async(int top_most, int id, std::function<void()> &&lambda) {
         // if level closed then aggregate the task and finish its execution
         // else estimate the average time to complete the task at that level and then decide whether to execute the task or not
         // if there is no average time at that level then push the task into the deque of the worker
         // else check the average time of that level and then decide whether to execute the task or not
         // if the average time is less than the estimated time then push the task into the deque of the worker
         // else execute the task
-        if (avg_time_per_level.find(task_depth) != avg_time_per_level.end()) {
-            if (avg_time_per_level[task_depth] > 0.01) {
+        
+        if (top_most == 0) {          // topmost = 0 means this task is broken from topmost by main thread to be pushed into a deque of any worker of a NUMA domain
+            int to_push_id = id;
+            if (avg_time_per_level.find(task_depth) != avg_time_per_level.end()) {
+                if (avg_time_per_level[task_depth] > 0.01) {
+                    pthread_mutex_lock(&finish_counter_lock);
+                    finish_counter++;
+                    pthread_mutex_unlock(&finish_counter_lock);
+                    std::function<void()>* task_ptr = new std::function<void()>(std::move(lambda));
+                    Task task;
+                    task.task = task_ptr;
+                    task.depth = task_depth;
+                    task.execution_time = 0;
+                    worker_deques[to_push_id].push(task);
+                    return;
+                }
+                else{
+                    lambda();
+                }
+            }
+            else {
                 pthread_mutex_lock(&finish_counter_lock);
                 finish_counter++;
                 pthread_mutex_unlock(&finish_counter_lock);
@@ -330,24 +352,62 @@ namespace quill {
                 task.task = task_ptr;
                 task.depth = task_depth;
                 task.execution_time = 0;
-                worker_deques[get_worker_id()].push(task);
+                worker_deques[to_push_id].push(task);
                 return;
             }
-            else{
-                lambda();
+        }
+        else{
+            int to_push_id = get_worker_id();
+            if (avg_time_per_level.find(task_depth) != avg_time_per_level.end()) {
+                if (avg_time_per_level[task_depth] > 0.01) {
+                    pthread_mutex_lock(&finish_counter_lock);
+                    finish_counter++;
+                    pthread_mutex_unlock(&finish_counter_lock);
+                    std::function<void()>* task_ptr = new std::function<void()>(std::move(lambda));
+                    Task task;
+                    task.task = task_ptr;
+                    task.depth = task_depth;
+                    task.execution_time = 0;
+                    worker_deques[to_push_id].push(task);
+                    return;
+                }
+                else{
+                    lambda();
+                }
+            }
+            else {
+                pthread_mutex_lock(&finish_counter_lock);
+                finish_counter++;
+                pthread_mutex_unlock(&finish_counter_lock);
+                std::function<void()>* task_ptr = new std::function<void()>(std::move(lambda));
+                Task task;
+                task.task = task_ptr;
+                task.depth = task_depth;
+                task.execution_time = 0;
+                worker_deques[to_push_id].push(task);
+                return;
             }
         }
-        else {
-            pthread_mutex_lock(&finish_counter_lock);
-            finish_counter++;
-            pthread_mutex_unlock(&finish_counter_lock);
-            std::function<void()>* task_ptr = new std::function<void()>(std::move(lambda));
-            Task task;
-            task.task = task_ptr;
-            task.depth = task_depth;
-            task.execution_time = 0;
-            worker_deques[get_worker_id()].push(task);
-            return;
+    }
+
+    // parallel_for implememtaion where it will take the top most task and break into number equal to NUMA domains, and then call async to put the task into deque of any worker
+    // so it will call async with thread id itself (0) and worker id of the worker in which the task will be pushed
+    // parallel_for function that splits work into chunks and processes asynchronously.
+    void parallel_for(int lower, int upper, std::function<void(int, int)> &&body) {
+        // Calculate the number of chunks needed
+        // first get the number of NUMA DOMAINS
+        int num_chunks = (upper - lower)/num_numa_domains;
+        int i =0;
+        for (const auto &pair : numa_domains){
+            int chunk_start = lower + i * num_chunks;
+            int chunk_end = std::min(upper, lower + (i + 1)*num_chunks);
+            // randomly get any worker_id from pair.second vector
+            int id = pair.second[rand() % pair.second.size()];          // worker_id to push the task to
+            async(0,id,[=]() {
+                // Execute the task (body) for the current chunk of work
+                body(chunk_start, chunk_end);
+            });
+            i+=1;
         }
     }
 
@@ -373,8 +433,40 @@ namespace quill {
             task.task = nullptr;
         } 
         else {
-                int i = rand() % num_workers;
-                if (i != worker_id && worker_deques[i].steal(task, worker_id)) {
+            // first check steal in its own numa domain
+            // with help of worker ID, get its NUMA Domain, and then get all workerIDS RANGE IN that domain
+            int Numa_node_of_worker = core_to_numa_mapping[worker_id];
+            // Now using this Numa_node_of_worker select randomly any id 
+            int steal_worker_id = -1;
+            while(steal_worker_id==-1 || steal_worker_id == worker_id){
+                steal_worker_id = numa_domains[Numa_node_of_worker][rand() % numa_domains[Numa_node_of_worker].size()]
+            }
+            if (worker_deques[steal_worker_id].steal(task, worker_id)) {
+                task_depth = task.depth + 1;
+                auto start_time = std::chrono::high_resolution_clock::now();
+                (*task.task)();
+                auto end_time = std::chrono::high_resolution_clock::now();
+                task.execution_time = std::chrono::duration<double>(end_time - start_time).count();
+                update_avg_time(task.depth, task.execution_time);
+                // delete &task;  
+                pthread_mutex_lock(&finish_counter_lock);
+                --finish_counter;
+                pthread_mutex_unlock(&finish_counter_lock);
+                task.task = nullptr;  
+                return;
+            }
+            else{
+                // if not steal from local NUMA , then check from other NUMA DOMAINS
+                for (const auto &pair : numa_domains){
+                    if (pair.second.size() > 0 && pair.first != Numa_node_of_worker){
+                        steal_worker_id = pair.second[rand() % pair.second.size()];
+                        break;
+                    }
+                    else{
+                        return;
+                    }
+                }
+                if (worker_deques[steal_worker_id].steal(task, worker_id)) {
                     task_depth = task.depth + 1;
                     auto start_time = std::chrono::high_resolution_clock::now();
                     (*task.task)();
@@ -388,6 +480,7 @@ namespace quill {
                     task.task = nullptr;  
                     return;
                 }
+            }
         }
     }
 
@@ -396,7 +489,7 @@ namespace quill {
         int numa_domain = worker_id / num_numa_domains;
         int core_id = worker_id % num_numa_domains;
 
-            // Bind thread to NUMA domain
+        // Bind thread to NUMA domain
         numa_run_on_node(numa_domain);
 
         // Bind thread to a specific core within the NUMA domain

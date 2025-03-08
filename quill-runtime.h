@@ -27,7 +27,8 @@ struct WorkerDeque {
     volatile int head;   
     volatile int tail;   
     pthread_mutex_t lock; 
-    
+    int numa_domain;
+    int numa_core_id;
     volatile bool flag = false; 
     
     pthread_cond_t condition_wait;

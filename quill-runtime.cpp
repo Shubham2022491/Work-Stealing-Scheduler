@@ -7,15 +7,17 @@
 #include <vector>
 #include <chrono> 
 #include <map>
+#include <numa.h>
 
 #include <pthread.h>
 using namespace std;
-
+#define SIZE 10485760 // Size of the array
 
 namespace quill {
 
     thread_local int task_depth = 0;
     int num_workers = 1; 
+    int num_numa_domains = 1;
     constexpr size_t DEQUE_SIZE = 50;  
   
 
@@ -26,6 +28,9 @@ namespace quill {
     std::map<int, pthread_mutex_t> level_locks;  
     std::vector<WorkerDeque<DEQUE_SIZE>> worker_deques;
     std::vector<pthread_t> workers;
+    std::vector<int*> numa_memory(num_numa_domains);
+    std::vector<int> core_to_numa_mapping(NUM_WORKERS);
+
 
     thread_local int worker_id = 0; 
 
@@ -92,7 +97,7 @@ namespace quill {
             // Assign the task to the requesting worker's mailbox
 
 
-            pthread_mutex_lock(&lock); 
+            //pthread_mutex_lock(&lock); 
             if(head==tail) {
                 worker_deques[target_worker_id].mail_box = task;
             }
@@ -100,8 +105,10 @@ namespace quill {
                 worker_deques[target_worker_id].mail_box = tasks[head];
             }
             pthread_cond_signal(&worker_deques[target_worker_id].condition_wait);
+            //pthread_mutex_unlock(&lock);
+
             request_box = -1;  // Reset the request box
-            pthread_mutex_unlock(&lock);
+
             
 
             if(head!=tail){
@@ -125,7 +132,7 @@ namespace quill {
     template <size_t DEQUE_SIZE>
     bool WorkerDeque<DEQUE_SIZE>::steal(Task &task, int worker_id) {
         
-        if (head == tail || request_box!=-1) {
+        if (head == tail) {
             //pthread_mutex_unlock(&worker_deques[i].lock);  // Unlock the target deque's mutex
             return false;
         }
@@ -138,6 +145,11 @@ namespace quill {
         // printf("Steal Request box:%d\n", request_box);
 
         pthread_mutex_lock(&worker_deques[worker_id].lock);  // Lock the target deque's mutex
+
+        if(request_box!=-1){
+            pthread_mutex_unlock(&worker_deques[worker_id].lock);
+            return false;  // Nothing was sent
+        }
         request_box = worker_id;
         // Set the request box to notify the other worker
         // Wait until a task is pushed into the mailbox
@@ -186,11 +198,12 @@ namespace quill {
             int target_worker_id = request_box;
 
             //pthread_mutex_lock(&worker_deques[target_worker_id].lock);
-            pthread_mutex_lock(&lock);
+            //pthread_mutex_lock(&lock);
             worker_deques[target_worker_id].mail_box = tasks[head];
             pthread_cond_signal(&worker_deques[target_worker_id].condition_wait);
+            //pthread_mutex_unlock(&lock);
+
             request_box = -1;
-            pthread_mutex_unlock(&lock);
 
             head = (head + 1) % DEQUE_SIZE; 
 
@@ -213,19 +226,78 @@ namespace quill {
         //pthread_mutex_unlock(&lock);
     }
 
+
+    template <typename T>
+    T* numa_alloc(size_t size, int node) {
+        void* ptr = numa_alloc_onnode(size * sizeof(T), node);
+        if (!ptr) {
+            throw std::runtime_error("Failed to allocate memory on NUMA node");
+        }
+        return static_cast<T*>(ptr);
+    }
+
+    void setup_worker_deques() {
+        int total_workers = num_numa_domains * num_workers;
+        core_to_numa_mapping.resize(total_workers);
+    
+        for (int worker_id = 0; worker_id < total_workers; ++worker_id) {
+            int core_id = worker_id; // Assuming 1-to-1 mapping for simplicity
+            int numa_node = numa_node_of_cpu(core_id); // Get NUMA node of core
+    
+            // Store the NUMA node for this core
+            core_to_numa_mapping[worker_id] = numa_node;
+    
+            // Allocate deque in the same NUMA domain as the core
+            worker_deques[worker_id] = numa_alloc<WorkerDeque>(1, numa_node);
+    
+            std::cout << "Worker " << worker_id << " assigned to core " << core_id
+                      << " on NUMA node " << numa_node << std::endl;
+        }
+    }
+
+    void allocate_numa_memory() {
+        // Get the number of available NUMA domains
+        num_numa_domains = numa_max_node() + 1;
+        if (num_numa_domains < 1) {
+            num_numa_domains = 1; // Fallback to 1 NUMA domain if NUMA is not available
+        }
+    
+        // Calculate the size of each portion
+        size_t portion_size = SIZE / num_numa_domains;
+    
+        // Allocate memory on each NUMA domain
+        for (int i = 0; i < num_numa_domains; i++) {
+            numa_memory[i] = (int*)numa_alloc_onnode(portion_size, i);
+            if (!numa_memory[i]) {
+                std::cerr << "Failed to allocate memory on NUMA node " << i << std::endl;
+                exit(1);
+            }
+        }
+    }
+
     volatile bool shutdown = false;
     void init_runtime() {
+        const char* domain_env = std::getenv("NUMA_DOMAINS");
         const char* workers_env = std::getenv("QUILL_WORKERS");
+        if(domain_env){
+            num_numa_domains = std::stoi(workers_env);
+        }
+        if(num_numa_domains < 1){
+            num_numa_domains = 1;
+        }
         if (workers_env) {
             num_workers = std::stoi(workers_env);
         }
         if (num_workers < 1) {
             num_workers = 1; 
         }
-        worker_deques.resize(num_workers);
-        workers.resize(num_workers);
+
+        int total_workers = num_numa_domains*num_workers;
+        worker_deques.resize(total_workers);
+        workers.resize(total_workers);
+        allocate_numa_memory();
         
-        for (int i = 1; i < num_workers; ++i) {
+        for (int i = 1; i <total_workers; ++i) {
             if (pthread_create(&workers[i], nullptr, (void*(*)(void*))worker_func, (void*)(intptr_t)i) != 0) {
                 throw std::runtime_error("Failed to create worker thread");
             }
@@ -321,6 +393,18 @@ namespace quill {
 
     void worker_func(void* arg) {
         worker_id = (intptr_t)arg;
+        int numa_domain = worker_id / num_numa_domains;
+        int core_id = worker_id % num_numa_domains;
+
+            // Bind thread to NUMA domain
+        numa_run_on_node(numa_domain);
+
+        // Bind thread to a specific core within the NUMA domain
+        cpu_set_t cpuset;
+        CPU_ZERO(&cpuset);
+        CPU_SET(core_id, &cpuset);
+
+        sched_setaffinity(0, sizeof(cpu_set_t), &cpuset);
         // std::cout << "Worker " << worker_id << " started" << std::endl;
         // cout<<"Shutdown"<<shutdown<<endl;
         while (!shutdown) {

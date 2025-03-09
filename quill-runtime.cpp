@@ -7,11 +7,12 @@
 #include <vector>
 #include <chrono> 
 #include <map>
+#include <cstdint>
 #include <numa.h>
 
 #include <pthread.h>
 using namespace std;
-#define SIZE 10485760 // Size of the array
+#define SIZE 4096 // Size of the array
 
 namespace quill {
 
@@ -258,7 +259,7 @@ namespace quill {
         }
     }
 
-    void allocate_numa_memory() {
+    void allocate_numa_memory(size_t size) {
         // Get the number of available NUMA domains
         num_numa_domains = numa_max_node() + 1;
         if (num_numa_domains < 1) {
@@ -266,7 +267,8 @@ namespace quill {
         }
     
         // Calculate the size of each portion
-        size_t portion_size = SIZE / num_numa_domains;
+        printf("Size %d\n", size);
+        size_t portion_size = size / num_numa_domains;
     
         // Allocate memory on each NUMA domain
         for (int i = 0; i < num_numa_domains; i++) {
@@ -279,7 +281,7 @@ namespace quill {
     }
 
     volatile bool shutdown = false;
-    void init_runtime() {
+    void init_runtime(size_t size) {
         const char* domain_env = std::getenv("NUMA_DOMAINS");
         const char* workers_env = std::getenv("QUILL_WORKERS");
         if(domain_env){
@@ -298,7 +300,7 @@ namespace quill {
         int total_workers = num_numa_domains*num_workers;
         worker_deques.resize(total_workers);
         workers.resize(total_workers);
-        allocate_numa_memory();
+        allocate_numa_memory(size);
         setup_worker_deques();
         for (int i = 1; i <total_workers; ++i) {
             if (pthread_create(&workers[i], nullptr, (void*(*)(void*))worker_func, (void*)(intptr_t)i) != 0) {
@@ -306,6 +308,7 @@ namespace quill {
             }
             // std::cout<<"Worker "<<i<<" created"<<std::endl;
         }
+ 
         // std::cout << "Quill runtime initialized with " << num_workers << " threads." << std::endl;
     }
 
@@ -323,7 +326,6 @@ namespace quill {
         // else check the average time of that level and then decide whether to execute the task or not
         // if the average time is less than the estimated time then push the task into the deque of the worker
         // else execute the task
-        
         if (top_most == 0) {          // topmost = 0 means this task is broken from topmost by main thread to be pushed into a deque of any worker of a NUMA domain
             int to_push_id = id;
             if (avg_time_per_level.find(task_depth) != avg_time_per_level.end()) {
@@ -353,6 +355,7 @@ namespace quill {
                 task.depth = task_depth;
                 task.execution_time = 0;
                 worker_deques[to_push_id].push(task);
+                printf("Worker Deque check, Push ID:%d\n", to_push_id);
                 return;
             }
         }
@@ -403,10 +406,12 @@ namespace quill {
             int chunk_end = std::min(upper, lower + (i + 1)*num_chunks);
             // randomly get any worker_id from pair.second vector
             int id = pair.second[rand() % pair.second.size()];          // worker_id to push the task to
+            //printf("Chunk Parameters: %d %d\n", chunk_start, chunk_end);
             async(0,id,[=]() {
                 // Execute the task (body) for the current chunk of work
                 body(chunk_start, chunk_end);
             });
+            //printf("Post Async\n");
             i+=1;
         }
     }
@@ -417,6 +422,7 @@ namespace quill {
         // WorkerDeque& deque = worker_deques[worker_id];
         Task task;
 
+        //printf("Find task for worker ID: %d\n", worker_id);
         if (worker_deques[worker_id].pop(task)) {
             // give a code that starts a timer here to check the execution time of the task
             task_depth = task.depth + 1;
@@ -486,22 +492,28 @@ namespace quill {
 
     void worker_func(void* arg) {
         worker_id = (intptr_t)arg;
-        int numa_domain = worker_id / num_numa_domains;
-        int core_id = worker_id % num_numa_domains;
+        printf("%d\n", num_numa_domains);
+        int numa_domain = worker_id / num_workers;
+        int core_id = worker_id % num_workers;
+
 
         // Bind thread to NUMA domain
         numa_run_on_node(numa_domain);
 
         // Bind thread to a specific core within the NUMA domain
+        printf("Bind Thread to ID: %d, NUMA Domain: %d\n", worker_id, numa_domain);
+
         cpu_set_t cpuset;
         CPU_ZERO(&cpuset);
         CPU_SET(core_id, &cpuset);
 
         sched_setaffinity(0, sizeof(cpu_set_t), &cpuset);
+        printf("After CPU Set to ID: %d, NUMA Domain: %d\n", core_id, numa_domain);
+
         // std::cout << "Worker " << worker_id << " started" << std::endl;
         // cout<<"Shutdown"<<shutdown<<endl;
         while (!shutdown) {
-            find_and_execute_task(worker_id);
+            find_and_execute_task(core_id);
         }
     }
 

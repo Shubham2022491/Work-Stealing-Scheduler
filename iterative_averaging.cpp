@@ -16,8 +16,8 @@
  */
 
 //48 * 256 * 2048
-#define SIZE 4096
-#define ITERATIONS 1
+#define SIZE 25165824
+#define ITERATIONS 64
 
 double* myNew, *myVal;
 int n;
@@ -83,7 +83,7 @@ int main(int argc, char** argv) {
   // quill::end_finish();
   long end = get_usecs();
   double dur = ((double)(end-start))/1000000;
-  printf("Time = %.3f\n",dur);
+  printf("Time = %.3fs\n",dur);
   // quill::finalize_runtime();
   delete(myNew);
   delete(myVal);

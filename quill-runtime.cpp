@@ -10,14 +10,14 @@
 #include <numa.h>
 #include <cstdint>
 #include <pthread.h>
-#define SIZE 4096 // Size of the array
+//#define SIZE 4096 // Size of the array
 
 namespace quill {
 
     thread_local int task_depth = 0;
     int num_workers = 1; 
     int num_numa_domains = 1;
-    constexpr size_t DEQUE_SIZE = 50;  
+    constexpr size_t DEQUE_SIZE = 500;  
   
 
     pthread_t master_thread;
@@ -124,8 +124,8 @@ namespace quill {
         return true;
     }
 
-    std::vector<WorkerDeque<DEQUE_SIZE>> worker_deques;
-    std::vector<pthread_t> workers;
+    // std::vector<WorkerDeque<DEQUE_SIZE>> worker_deques;
+    // std::vector<pthread_t> workers;
 
 
     template <typename T>

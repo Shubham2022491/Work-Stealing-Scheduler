@@ -127,8 +127,60 @@ namespace quill {
     std::vector<WorkerDeque<DEQUE_SIZE>> worker_deques;
     std::vector<pthread_t> workers;
 
+
+    template <typename T>
+    T* numa_alloc(size_t size, int node) {
+        void* ptr = numa_alloc_onnode(size * sizeof(T), node);
+        if (!ptr) {
+            throw std::runtime_error("Failed to allocate memory on NUMA node");
+        }
+        return static_cast<T*>(ptr);
+    }
+
+    void setup_worker_deques() {
+        int total_workers = num_numa_domains * num_workers;
+        core_to_numa_mapping.resize(total_workers);
+    
+        for (int worker_id = 0; worker_id < total_workers; ++worker_id) {
+            int core_id = worker_id; // Assuming 1-to-1 mapping for simplicity
+            int numa_node = numa_node_of_cpu(core_id); // Get NUMA node of core
+    
+            // Store the NUMA node for this core
+            core_to_numa_mapping[worker_id] = numa_node;
+            numa_domains[numa_node].push_back(worker_id);
+            // Allocate deque in the same NUMA domain as the core
+            worker_deques[worker_id] = *numa_alloc<WorkerDeque<DEQUE_SIZE>>(1, numa_node);
+    
+            std::cout << "Worker " << worker_id << " assigned to core " << core_id
+                      << " on NUMA node " << numa_node << std::endl;
+        }
+    }
+
+    void allocate_numa_memory(size_t size) {
+        // Get the number of available NUMA domains
+        num_numa_domains = numa_max_node() + 1;
+        if (num_numa_domains < 1) {
+            num_numa_domains = 1; // Fallback to 1 NUMA domain if NUMA is not available
+        }
+    
+        // Calculate the size of each portion
+        printf("Size %d\n", size);
+        size_t portion_size = size / num_numa_domains;
+    
+        // Allocate memory on each NUMA domain
+        for (int i = 0; i < num_numa_domains; i++) {
+            numa_memory[i] = (int*)numa_alloc_onnode(portion_size, i);
+            if (!numa_memory[i]) {
+                std::cerr << "Failed to allocate memory on NUMA node " << i << std::endl;
+                exit(1);
+            }
+        }
+    }
+
+    
+
     volatile bool shutdown = false;
-    void init_runtime() {
+    void init_runtime(size_t size)  {
         const char* workers_env = std::getenv("QUILL_WORKERS");
         if (workers_env) {
             num_workers = std::stoi(workers_env);
@@ -140,7 +192,7 @@ namespace quill {
         int total_workers = num_numa_domains*num_workers;
         worker_deques.resize(total_workers);
         workers.resize(total_workers);
-        allocate_numa_memory();
+        allocate_numa_memory(size);
         setup_worker_deques();
         for (int i = 1; i <total_workers; ++i) {
             if (pthread_create(&workers[i], nullptr, (void*(*)(void*))worker_func, (void*)(intptr_t)i) != 0) {
@@ -328,8 +380,8 @@ namespace quill {
 
     void worker_func(void* arg) {
         worker_id = (intptr_t)arg;
-        int numa_domain = worker_id / num_numa_domains;
-        int core_id = worker_id % num_numa_domains;
+        int numa_domain = worker_id / num_workers;
+        int core_id = worker_id % num_workers;
 
         // Bind thread to NUMA domain
         numa_run_on_node(numa_domain);

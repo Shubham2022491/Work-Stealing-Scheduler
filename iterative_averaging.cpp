@@ -5,6 +5,7 @@
 #include<cmath>
 #include<sys/time.h>
 #include "quill.h"
+#include <cstdint>
 
 
 /*
@@ -15,8 +16,8 @@
  */
 
 //48 * 256 * 2048
-#define SIZE 25165824
-#define ITERATIONS 64
+#define SIZE 4096
+#define ITERATIONS 1
 
 double* myNew, *myVal;
 int n;
@@ -54,14 +55,14 @@ void recurse(uint64_t low, uint64_t high) {
 void runParallel() {
   for(int i=0; i<ITERATIONS; i++) {
     // give recurse(1, SIZE+1); to parallel_for
-    quill::init_runtime();
+    
     quill::start_finish();
     quill::parallel_for(1, SIZE + 1, [](int start, int end) {
       // This is the body that gets executed for each chunk
       recurse(start, end);
     });
     quill::end_finish();
-    quill::finalize_runtime();
+    
     double* temp = myNew;
     myNew = myVal;
     myVal = temp;
@@ -69,6 +70,7 @@ void runParallel() {
 }
 
 int main(int argc, char** argv) {
+  quill::init_runtime(SIZE);
   myNew = new double[(SIZE + 2)];
   myVal = new double[(SIZE + 2)];
   memset(myNew, 0, sizeof(double) * (SIZE + 2));
@@ -85,5 +87,6 @@ int main(int argc, char** argv) {
   // quill::finalize_runtime();
   delete(myNew);
   delete(myVal);
+  quill::finalize_runtime();
 }
 

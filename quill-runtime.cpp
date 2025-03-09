@@ -8,10 +8,9 @@
 #include <chrono> 
 #include <map>
 #include <numa.h>
-
+#include <cstdint>
 #include <pthread.h>
-using namespace std;
-#define SIZE 10485760 // Size of the array
+#define SIZE 4096 // Size of the array
 
 namespace quill {
 

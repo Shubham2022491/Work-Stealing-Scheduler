@@ -21,7 +21,9 @@ struct WorkerDeque {
     volatile int head;   
     volatile int tail;   
     pthread_mutex_t lock; 
-
+    int numa_domain;
+    int numa_core_id;
+    
     WorkerDeque();
     void push(Task task); 
     bool steal(Task &task); 

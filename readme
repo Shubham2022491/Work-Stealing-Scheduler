@@ -1,3 +1,4 @@
-make -----> to compile
+g++ main.cpp quill-runtime.cpp -o quill_test -pthread -----> to compile
 export QUILL_WORKERS=4 ------> to set the environment variable
+export NUMA_DOMAINS=4 ------> to set the environment variable
 ./quill_test ----> to run

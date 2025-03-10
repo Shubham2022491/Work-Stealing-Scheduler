@@ -87,6 +87,6 @@ int main(int argc, char** argv) {
   // quill::finalize_runtime();
   delete(myNew);
   delete(myVal);
-  quill::finalize_runtime();
+  quill::finalize_runtime(SIZE);
 }
 

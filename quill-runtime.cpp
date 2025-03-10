@@ -138,7 +138,7 @@ namespace quill {
     }
 
     template <typename T>
-    void quill::numa_dealloc(T* pointer, size_t size) {
+    void numa_dealloc(T* pointer, size_t size) {
         if (pointer) {
             numa_free(pointer, size * sizeof(T));
         }
@@ -426,7 +426,7 @@ namespace quill {
         // cout<<"I didnt got a chance"<<endl;
     }
     
-    void finalize_runtime() {
+    void finalize_runtime(size_t size) {
         shutdown = true;
         // cout<<"Shutting down"<<endl;
         for (int i = 1; i < num_workers; ++i) {

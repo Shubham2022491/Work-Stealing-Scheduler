@@ -11,7 +11,7 @@ namespace quill {
     void parallel_for(int lower, int upper, std::function<void(int, int)> &&body);
     // Runtime initialization and finalization
     void init_runtime(size_t size);        // Function to initialize the Quill runtime
-    void finalize_runtime();    // Function to finalize the Quill runtime
+    void finalize_runtime(size_t size);    // Function to finalize the Quill runtime
     
 }
 

@@ -137,6 +137,13 @@ namespace quill {
         return static_cast<T*>(ptr);
     }
 
+    template <typename T>
+    void quill::numa_dealloc(T* pointer, size_t size) {
+        if (pointer) {
+            numa_free(pointer, size * sizeof(T));
+        }
+    }
+
     void setup_worker_deques() {
         int total_workers = num_numa_domains * num_workers;
         core_to_numa_mapping.resize(total_workers);
@@ -164,15 +171,26 @@ namespace quill {
         }
     
         // Calculate the size of each portion
-        printf("Size %d\n", size);
+        printf("Size %zu\n", size);
         size_t portion_size = size / num_numa_domains;
     
-        // Allocate memory on each NUMA domain
+        // Allocate memory on each NUMA domain using numa_alloc<T>
         for (int i = 0; i < num_numa_domains; i++) {
-            numa_memory[i] = (int*)numa_alloc_onnode(portion_size, i);
+            numa_memory[i] = numa_alloc<int>(portion_size, i); // Use template function
             if (!numa_memory[i]) {
                 std::cerr << "Failed to allocate memory on NUMA node " << i << std::endl;
                 exit(1);
+            }
+        }
+    }
+
+    void deallocate_numa_memory(size_t size) {
+        size_t portion_size = size / num_numa_domains;
+    
+        for (int i = 0; i < num_numa_domains; i++) {
+            if (numa_memory[i]) {
+                quill::numa_dealloc(numa_memory[i], portion_size);
+                numa_memory[i] = nullptr; // Avoid dangling pointers
             }
         }
     }
@@ -419,10 +437,8 @@ namespace quill {
             std::cout << "{ " << p.first << " : " << p.second << " } ";
         }
         std::cout << std::endl;
-
-
-    }
-    
+        deallocate_numa_memory(size);
+    } 
 }
 
 

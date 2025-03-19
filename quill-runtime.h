@@ -38,6 +38,8 @@ struct WorkerDeque {
     int numa_core_id;
     unsigned int AC;
     unsigned int SC;
+    // Array to store stolen tasks
+    Task* stolen_tasks_array;
     
     WorkerDeque();
     void push(Task task); 

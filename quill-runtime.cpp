@@ -28,6 +28,7 @@ namespace quill {
     std::map<int, pthread_mutex_t> level_locks;  
     // make a map where key will be integer(NUMA nodes) and the value will be a vector containing core_ids(int)
     std::map<int, std::vector<int>> numa_domains; // map of NUMA domains
+    std::map<int,int> first_task_to_worker_id_NUMANODE_Workerid;
 
     std::vector<WorkerDeque<DEQUE_SIZE>> worker_deques;
     std::vector<pthread_t> workers;
@@ -126,19 +127,19 @@ namespace quill {
     }
 
     template <size_t DEQUE_SIZE>
-void WorkerDeque<DEQUE_SIZE>::put_node_at_end_of_linkedlist(Linked_list_Node* node) {
-    if (linked_list_head == nullptr) {
-        // If the list is empty, the new node becomes the head
-        linked_list_head = node;
-    } else {
-        // Traverse to the end of the list
-        Linked_list_Node* current = linked_list_head;
-        while (current->next != nullptr) {
-            current = current->next;
+    void WorkerDeque<DEQUE_SIZE>::put_node_at_end_of_linkedlist(Linked_list_Node* node) {
+        if (linked_list_head == nullptr) {
+            // If the list is empty, the new node becomes the head
+            linked_list_head = node;
+        } else {
+            // Traverse to the end of the list
+            Linked_list_Node* current = linked_list_head;
+            while (current->next != nullptr) {
+                current = current->next;
+            }
+            current->next = node; // Append the node at the end
         }
-        current->next = node; // Append the node at the end
     }
-}
     // std::vector<WorkerDeque<DEQUE_SIZE>> worker_deques;
     // std::vector<pthread_t> workers;
 
@@ -340,6 +341,25 @@ void WorkerDeque<DEQUE_SIZE>::put_node_at_end_of_linkedlist(Linked_list_Node* no
         }
     }
 
+    void create_array_to_store_stolen_task(int tot_workers){
+        for (int i = 0; i < tot_workers; ++i) {
+            // If there are no stolen tasks, continue
+            if (worker_deques[i].SC == 0) {
+                worker_deques[i].stolen_tasks_array = nullptr;
+                continue;
+            }
+            
+            // Allocate memory dynamically based on SC (steal counter)
+            worker_deques[i].stolen_tasks_array = new Task[worker_deques[i].SC];
+            for (unsigned int j = 0; j < worker_deques[i].SC; ++j) {
+                worker_deques[i].stolen_tasks_array[j].task = nullptr; 
+            }
+            
+            std::cout << "Created stolen task array of size " << worker_deques[i].SC 
+                      << " for Worker " << i << std::endl;
+        }
+    }
+
     static int tracing_enabled = false;
     static int replay_enabled = false;
 
@@ -402,11 +422,30 @@ void WorkerDeque<DEQUE_SIZE>::put_node_at_end_of_linkedlist(Linked_list_Node* no
         // if the average time is less than the estimated time then push the task into the deque of the worker
         // else execute the task
         
-       
-        if (top_most == 0) {          // topmost = 0 means this task is broken from topmost by main thread to be pushed into a deque of any worker of a NUMA domain
-            int to_push_id = id;
-            if (avg_time_per_level.find(task_depth) != avg_time_per_level.end()) {
-                if (avg_time_per_level[task_depth] > 0.01) {
+        if (tracing_enabled){
+            if (top_most == 0) {          // topmost = 0 means this task is broken from topmost by main thread to be pushed into a deque of any worker of a NUMA domain
+                int to_push_id = id;
+                if (avg_time_per_level.find(task_depth) != avg_time_per_level.end()) {
+                    if (avg_time_per_level[task_depth] > 0.01) {
+                        pthread_mutex_lock(&finish_counter_lock);
+                        finish_counter++;
+                        pthread_mutex_unlock(&finish_counter_lock);
+                        std::function<void()>* task_ptr = new std::function<void()>(std::move(lambda));
+                        Task task;
+                        task.task = task_ptr;
+                        task.depth = task_depth;
+                        task.execution_time = 0;
+                        task.worker_who_created_this_task = to_push_id;
+                        task.ID = worker_deques[to_push_id].AC+1
+                        worker_deques[to_push_id].AC+=1;
+                        worker_deques[to_push_id].push(task);
+                        return;
+                    }
+                    else{
+                        lambda();
+                    }
+                }
+                else {
                     pthread_mutex_lock(&finish_counter_lock);
                     finish_counter++;
                     pthread_mutex_unlock(&finish_counter_lock);
@@ -421,30 +460,79 @@ void WorkerDeque<DEQUE_SIZE>::put_node_at_end_of_linkedlist(Linked_list_Node* no
                     worker_deques[to_push_id].push(task);
                     return;
                 }
-                else{
-                    lambda();
+            }
+            else{
+                int to_push_id = get_worker_id();
+                if (avg_time_per_level.find(task_depth) != avg_time_per_level.end()) {
+                    if (avg_time_per_level[task_depth] > 0.01) {
+                        pthread_mutex_lock(&finish_counter_lock);
+                        finish_counter++;
+                        pthread_mutex_unlock(&finish_counter_lock);
+                        std::function<void()>* task_ptr = new std::function<void()>(std::move(lambda));
+                        Task task;
+                        task.task = task_ptr;
+                        task.depth = task_depth;
+                        task.execution_time = 0;
+                        task.worker_who_created_this_task = to_push_id;
+                        task.ID = worker_deques[to_push_id].AC+1
+                        worker_deques[to_push_id].AC+=1;
+                        worker_deques[to_push_id].push(task);
+                        return;
+                    }
+                    else{
+                        lambda();
+                    }
                 }
-            }
-            else {
-                pthread_mutex_lock(&finish_counter_lock);
-                finish_counter++;
-                pthread_mutex_unlock(&finish_counter_lock);
-                std::function<void()>* task_ptr = new std::function<void()>(std::move(lambda));
-                Task task;
-                task.task = task_ptr;
-                task.depth = task_depth;
-                task.execution_time = 0;
-                task.worker_who_created_this_task = to_push_id;
-                task.ID = worker_deques[to_push_id].AC+1
-                worker_deques[to_push_id].AC+=1;
-                worker_deques[to_push_id].push(task);
-                return;
-            }
+                else {
+                    pthread_mutex_lock(&finish_counter_lock);
+                    finish_counter++;
+                    pthread_mutex_unlock(&finish_counter_lock);
+                    std::function<void()>* task_ptr = new std::function<void()>(std::move(lambda));
+                    Task task;
+                    task.task = task_ptr;
+                    task.depth = task_depth;
+                    task.execution_time = 0;
+                    task.worker_who_created_this_task = to_push_id;
+                    task.ID = worker_deques[to_push_id].AC+1
+                    worker_deques[to_push_id].AC+=1;
+                    worker_deques[to_push_id].push(task);
+                    return;
+                }
+            } 
         }
-        else{
-            int to_push_id = get_worker_id();
-            if (avg_time_per_level.find(task_depth) != avg_time_per_level.end()) {
-                if (avg_time_per_level[task_depth] > 0.01) {
+        else if (replay_enabled){
+            if (top_most == 0) {          // topmost = 0 means this task is broken from topmost by main thread to be pushed into a deque of any worker of a NUMA domain
+                int to_push_id = id;
+                if (avg_time_per_level.find(task_depth) != avg_time_per_level.end()) {
+                    if (avg_time_per_level[task_depth] > 0.01) {
+                        pthread_mutex_lock(&finish_counter_lock);
+                        finish_counter++;
+                        pthread_mutex_unlock(&finish_counter_lock);
+                        std::function<void()>* task_ptr = new std::function<void()>(std::move(lambda));
+                        Task task;
+                        task.task = task_ptr;
+                        task.depth = task_depth;
+                        task.execution_time = 0;
+                        task.worker_who_created_this_task = to_push_id;
+                        task.ID = worker_deques[to_push_id].AC+1;
+                        worker_deques[to_push_id].AC+=1;
+                        // worker_deques[to_push_id].push(task);
+                        // get the id of the worker who stole this task
+                        // find that node in the linked list of this worker that correspons to task.ID
+                        Linked_list_Node* current_ = worker_deques[to_push_id].linked_list_head;
+                        while(current_->task_id!=task.ID){
+                            current_ = current_->next;
+                        } 
+                        int id_worker_who_executed = current_->worker_who_executed_this_task;
+                        worker_deques[id_worker_who_executed].stolen_tasks_array[worker_deques[id_worker_who_executed].SC] = task;
+                        // worker_deques[id_worker_who_executed].SC+=1;
+                        return;
+                    }
+                    else{
+                        lambda();
+                    }
+                }
+                else {
                     pthread_mutex_lock(&finish_counter_lock);
                     finish_counter++;
                     pthread_mutex_unlock(&finish_counter_lock);
@@ -456,29 +544,76 @@ void WorkerDeque<DEQUE_SIZE>::put_node_at_end_of_linkedlist(Linked_list_Node* no
                     task.worker_who_created_this_task = to_push_id;
                     task.ID = worker_deques[to_push_id].AC+1
                     worker_deques[to_push_id].AC+=1;
-                    worker_deques[to_push_id].push(task);
+                    // worker_deques[to_push_id].push(task);
+                    // get the id of the worker who stole this task
+                    // find that node in the linked list of this worker that correspons to task.ID
+                    Linked_list_Node* current_ = worker_deques[to_push_id].linked_list_head;
+                    while(current_->task_id!=task.ID){
+                        current_ = current_->next;
+                    } 
+                    int id_worker_who_executed = current_->worker_who_executed_this_task;
+                    worker_deques[id_worker_who_executed].stolen_tasks_array[worker_deques[id_worker_who_executed].SC] = task;
+                    // worker_deques[id_worker_who_executed].SC+=1;
                     return;
                 }
-                else{
-                    lambda();
+            }
+            else{
+                int to_push_id = get_worker_id();
+                if (avg_time_per_level.find(task_depth) != avg_time_per_level.end()) {
+                    if (avg_time_per_level[task_depth] > 0.01) {
+                        pthread_mutex_lock(&finish_counter_lock);
+                        finish_counter++;
+                        pthread_mutex_unlock(&finish_counter_lock);
+                        std::function<void()>* task_ptr = new std::function<void()>(std::move(lambda));
+                        Task task;
+                        task.task = task_ptr;
+                        task.depth = task_depth;
+                        task.execution_time = 0;
+                        task.worker_who_created_this_task = to_push_id;
+                        task.ID = worker_deques[to_push_id].AC+1
+                        worker_deques[to_push_id].AC+=1;
+                        // worker_deques[to_push_id].push(task);
+                        // get the id of the worker who stole this task
+                        // find that node in the linked list of this worker that correspons to task.ID
+                        Linked_list_Node* current_ = worker_deques[to_push_id].linked_list_head;
+                        while(current_->task_id!=task.ID){
+                            current_ = current_->next;
+                        } 
+                        int id_worker_who_executed = current_->worker_who_executed_this_task;
+                        worker_deques[id_worker_who_executed].stolen_tasks_array[worker_deques[id_worker_who_executed].SC] = task;
+                        // worker_deques[id_worker_who_executed].SC+=1;
+                        return;
+                    }
+                    else{
+                        lambda();
+                    }
                 }
-            }
-            else {
-                pthread_mutex_lock(&finish_counter_lock);
-                finish_counter++;
-                pthread_mutex_unlock(&finish_counter_lock);
-                std::function<void()>* task_ptr = new std::function<void()>(std::move(lambda));
-                Task task;
-                task.task = task_ptr;
-                task.depth = task_depth;
-                task.execution_time = 0;
-                task.worker_who_created_this_task = to_push_id;
-                task.ID = worker_deques[to_push_id].AC+1
-                worker_deques[to_push_id].AC+=1;
-                worker_deques[to_push_id].push(task);
-                return;
-            }
-        } 
+                else {
+                    pthread_mutex_lock(&finish_counter_lock);
+                    finish_counter++;
+                    pthread_mutex_unlock(&finish_counter_lock);
+                    std::function<void()>* task_ptr = new std::function<void()>(std::move(lambda));
+                    Task task;
+                    task.task = task_ptr;
+                    task.depth = task_depth;
+                    task.execution_time = 0;
+                    task.worker_who_created_this_task = to_push_id;
+                    task.ID = worker_deques[to_push_id].AC+1
+                    worker_deques[to_push_id].AC+=1;
+                    // worker_deques[to_push_id].push(task);
+                    // get the id of the worker who stole this task
+                    // find that node in the linked list of this worker that correspons to task.ID
+                    Linked_list_Node* current_ = worker_deques[to_push_id].linked_list_head;
+                    while(current_->task_id!=task.ID){
+                        current_ = current_->next;
+                    } 
+                    int id_worker_who_executed = current_->worker_who_executed_this_task;
+                    worker_deques[id_worker_who_executed].stolen_tasks_array[worker_deques[id_worker_who_executed].SC] = task;
+                    // worker_deques[id_worker_who_executed].SC+=1;
+                    return;
+                }
+            } 
+        }
     }
 
     // parallel_for implememtaion where it will take the top most task and break into number equal to NUMA domains, and then call async to put the task into deque of any worker
@@ -489,16 +624,34 @@ void WorkerDeque<DEQUE_SIZE>::put_node_at_end_of_linkedlist(Linked_list_Node* no
         // first get the number of NUMA DOMAINS
         int num_chunks = (upper - lower)/num_numa_domains;
         int i =0;
-        for (const auto &pair : numa_domains){
-            int chunk_start = lower + i * num_chunks;
-            int chunk_end = std::min(upper, lower + (i + 1)*num_chunks);
-            // randomly get any worker_id from pair.second vector
-            int id = pair.second[rand() % pair.second.size()];          // worker_id to push the task to
-            async(0,id,[=]() {
-                // Execute the task (body) for the current chunk of work
-                body(chunk_start, chunk_end);
-            });
-            i+=1;
+        if (tracing_enabled){
+            for (const auto &pair : numa_domains){
+                int chunk_start = lower + i * num_chunks;
+                int chunk_end = std::min(upper, lower + (i + 1)*num_chunks);
+                // randomly get any worker_id from pair.second vector
+                int id = pair.second[rand() % pair.second.size()];          // worker_id to push the task to
+                first_task_to_worker_id_NUMANODE_Workerid[pair.first] = id;
+                async(0,id,[=]() {
+                    // Execute the task (body) for the current chunk of work
+                    body(chunk_start, chunk_end);
+                });
+                i+=1;
+            }
+        }
+        else if (replay_enabled){
+            for (const auto &pair : numa_domains){
+                int chunk_start = lower + i * num_chunks;
+                int chunk_end = std::min(upper, lower + (i + 1)*num_chunks);
+                // randomly get any worker_id from pair.second vector
+                // int id = pair.second[rand() % pair.second.size()];          // worker_id to push the task to
+                // first_task_to_worker_id_NUMANODE_Workerid[pair.first] = id
+                int id = first_task_to_worker_id_NUMANODE_Workerid[pair.first];
+                async(0,id,[=]() {
+                    // Execute the task (body) for the current chunk of work
+                    body(chunk_start, chunk_end);
+                });
+                i+=1;
+            }
         }
     }
 
@@ -594,7 +747,22 @@ void WorkerDeque<DEQUE_SIZE>::put_node_at_end_of_linkedlist(Linked_list_Node* no
                 }
             }
             else if(replay_enabled){
-
+                // no stealing from other deques from the tail side, now give the same tasks to those who initially stole them.
+                if (worker_deques[worker_id].stolen_tasks_array[worker_deques[worker_id].SC].task != nullptr){    //NOTE I SUSPECT THERE WILL BE A LOCK FOR SC
+                    worker_deques[worker_id].SC +=1;
+                    // execute task
+                    task_depth = worker_deques[worker_id].stolen_tasks_array[index].depth + 1;
+                    auto start_time = std::chrono::high_resolution_clock::now();
+                    (*(worker_deques[worker_id].stolen_tasks_array[index].task))(); 
+                    auto end_time = std::chrono::high_resolution_clock::now();
+                    worker_deques[worker_id].stolen_tasks_array[index].execution_time = std::chrono::duration<double>(end_time - start_time).count();
+                    update_avg_time(worker_deques[worker_id].stolen_tasks_array[index].depth, worker_deques[worker_id].stolen_tasks_array[index].execution_time);
+         
+                    pthread_mutex_lock(&finish_counter_lock);
+                    --finish_counter;
+                    pthread_mutex_unlock(&finish_counter_lock);
+                    worker_deques[worker_id].stolen_tasks_array[index].task = nullptr;  
+                }
             }
         }
     }

@@ -26,12 +26,10 @@ int ceilDiv(int d) {
 void recurse(uint64_t low, uint64_t high) {
   if((high - low) > THRESHOLD) {
     uint64_t mid = (high+low)/2;
-    quill::finish([=]() {
-      quill::async([=]() {
-        recurse(low, mid);  
-      });
-      recurse(mid, high);
+    quill::async([=]() {
+      recurse(low, mid);  
     });
+    recurse(mid, high);
   } else {
     for(uint64_t j=low; j<high; j++) {
       myNew[j] = (myVal[j - 1] + myVal[j + 1]) / 2.0;
@@ -41,7 +39,9 @@ void recurse(uint64_t low, uint64_t high) {
 
 void runParallel() {
   for(int i=0; i<ITERATIONS; i++) {
-    recurse(1, SIZE+1);
+    quill::finish([=]() {
+      recurse(1, SIZE+1);
+    });
     double* temp = myNew;
     myNew = myVal;
     myVal = temp;

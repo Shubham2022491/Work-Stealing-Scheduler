@@ -18,6 +18,7 @@ namespace quill {
     int num_workers = 1; 
     int num_numa_domains = 1;
     constexpr size_t DEQUE_SIZE = 500;  
+    
   
 
     pthread_t master_thread;
@@ -124,6 +125,20 @@ namespace quill {
         return true;
     }
 
+    template <size_t DEQUE_SIZE>
+void WorkerDeque<DEQUE_SIZE>::put_node_at_end_of_linkedlist(Linked_list_Node* node) {
+    if (linked_list_head == nullptr) {
+        // If the list is empty, the new node becomes the head
+        linked_list_head = node;
+    } else {
+        // Traverse to the end of the list
+        Linked_list_Node* current = linked_list_head;
+        while (current->next != nullptr) {
+            current = current->next;
+        }
+        current->next = node; // Append the node at the end
+    }
+}
     // std::vector<WorkerDeque<DEQUE_SIZE>> worker_deques;
     // std::vector<pthread_t> workers;
 
@@ -195,6 +210,157 @@ namespace quill {
         }
     }
 
+
+    void reset_worker_AC_counter(int tot_workers){
+        for (int worker_id = 0; worker_id < tot_workers; ++worker_id){
+            worker_deques[worker_id].AC = (worker_id)*(UINT_MAX/tot_workers);
+        }
+    }
+
+    void reset_worker_SC_counter(int tot_workers){
+        for (int worker_id = 0; worker_id < tot_workers; ++worker_id){
+            worker_deques[worker_id].SC = 0;
+        }
+    }
+
+    void list_aggregation(int tot_workers){
+        // Initialize the head pointers for the aggregated lists
+        Linked_list_Node* created_task_list[tot_workers] = {nullptr};
+        Linked_list_Node* created_task_tail[tot_workers] = {nullptr}; // Track tail for efficient insertion
+
+        for (int worker_id = 0; worker_id < tot_workers; ++worker_id) {
+            Linked_list_Node* current = worker_deques[worker_id].linked_list_head;
+
+            while (current != nullptr) {
+                int creator_id = current->worker_who_created_this_task;
+
+                // If no list exists for the creator, initialize it
+                if (created_task_list[creator_id] == nullptr) {
+                    created_task_list[creator_id] = current;
+                    created_task_tail[creator_id] = current;
+                } else {
+                    // Append to the end of the creator's list
+                    created_task_tail[creator_id]->next = current;
+                    created_task_tail[creator_id] = current;
+                }
+
+                current = current->next; // Move to the next node
+            }
+        }
+
+        // Null-terminate the lists to avoid cycles
+        for (int i = 0; i < tot_workers; ++i) {
+            if (created_task_tail[i] != nullptr) {
+                created_task_tail[i]->next = nullptr;
+            }
+        }
+
+        for (int i = 0; i < tot_workers; ++i) {
+            worker_deques[i].linked_list_head = created_task_list[i];
+        }
+
+        // (Optional) Print the results for debugging
+        // for (int i = 0; i < tot_workers; ++i) {
+        //     std::cout << "Worker " << i << " created tasks: ";
+        //     Linked_list_Node* node = created_task_list[i];
+        //     while (node != nullptr) {
+        //         std::cout << "Task " << node->task_id << " -> ";
+        //         node = node->next;
+        //     }
+        //     std::cout << "NULL" << std::endl;
+        // }    
+    }
+
+
+    // Function to split a linked list into two halves
+    void splitList(Linked_list_Node* source, Linked_list_Node** front, Linked_list_Node** back) {
+        if (source == nullptr || source->next == nullptr) {
+            *front = source;
+            *back = nullptr;
+            return;
+        }
+
+        Linked_list_Node* slow = source;
+        Linked_list_Node* fast = source->next;
+
+        while (fast != nullptr) {
+            fast = fast->next;
+            if (fast != nullptr) {
+                slow = slow->next;
+                fast = fast->next;
+            }
+        }
+
+        *front = source;
+        *back = slow->next;
+        slow->next = nullptr; // Split into two lists
+    }
+
+    // Function to merge two sorted linked lists
+    Linked_list_Node* sortedMerge(Linked_list_Node* a, Linked_list_Node* b) {
+        if (a == nullptr) return b;
+        if (b == nullptr) return a;
+
+        Linked_list_Node* result = nullptr;
+
+        if (a->task_id <= b->task_id) {
+            result = a;
+            result->next = sortedMerge(a->next, b);
+        } else {
+            result = b;
+            result->next = sortedMerge(a, b->next);
+        }
+        return result;
+    }
+
+    // Recursive merge sort for linked list
+    Linked_list_Node* mergeSort(Linked_list_Node* head) {
+        if (head == nullptr || head->next == nullptr) {
+            return head;
+        }
+
+        Linked_list_Node* a;
+        Linked_list_Node* b;
+
+        // Split the list into two halves
+        splitList(head, &a, &b);
+
+        // Recursively sort the two halves
+        a = mergeSort(a);
+        b = mergeSort(b);
+
+        // Merge the sorted halves
+        return sortedMerge(a, b);
+    }
+
+
+    void list_sorting(int tot_workers){
+        for (int i = 0; i < tot_workers; ++i) {
+            worker_deques[i].linked_list_head = mergeSort(worker_deques[i].linked_list_head);
+        }
+    }
+
+    static int tracing_enabled = false;
+    static int replay_enabled = false;
+
+
+    void hclib::start_tracing() {
+        tracing_enabled = true;
+        reset_worker_AC_counter(num_numa_domains * num_workers); // See Lecture #13, Slides #16
+        /* Each worker’s AC value set to (workerID * UINT_MAX/numWorkers) */
+        reset_worker_SC_counters(num_numa_domains * num_workers);
+    }
+
+
+    void hclib::stop_tracing() {
+        if(replay_enabled == false) {
+            list_aggregation(num_numa_domains * num_workers); // See Lecture #13, Slides #35-36
+            list_sorting(num_numa_domains * num_workers); // See Lecture #13, Slides #37
+            create_array_to_store_stolen_task(num_numa_domains * num_workers); // See Lecture #13, Slides #39-40
+            replay_enabled = true;
+        }
+    }
+
     
 
     volatile bool shutdown = false;
@@ -236,6 +402,7 @@ namespace quill {
         // if the average time is less than the estimated time then push the task into the deque of the worker
         // else execute the task
         
+       
         if (top_most == 0) {          // topmost = 0 means this task is broken from topmost by main thread to be pushed into a deque of any worker of a NUMA domain
             int to_push_id = id;
             if (avg_time_per_level.find(task_depth) != avg_time_per_level.end()) {
@@ -248,6 +415,9 @@ namespace quill {
                     task.task = task_ptr;
                     task.depth = task_depth;
                     task.execution_time = 0;
+                    task.worker_who_created_this_task = to_push_id;
+                    task.ID = worker_deques[to_push_id].AC+1
+                    worker_deques[to_push_id].AC+=1;
                     worker_deques[to_push_id].push(task);
                     return;
                 }
@@ -264,6 +434,9 @@ namespace quill {
                 task.task = task_ptr;
                 task.depth = task_depth;
                 task.execution_time = 0;
+                task.worker_who_created_this_task = to_push_id;
+                task.ID = worker_deques[to_push_id].AC+1
+                worker_deques[to_push_id].AC+=1;
                 worker_deques[to_push_id].push(task);
                 return;
             }
@@ -280,6 +453,9 @@ namespace quill {
                     task.task = task_ptr;
                     task.depth = task_depth;
                     task.execution_time = 0;
+                    task.worker_who_created_this_task = to_push_id;
+                    task.ID = worker_deques[to_push_id].AC+1
+                    worker_deques[to_push_id].AC+=1;
                     worker_deques[to_push_id].push(task);
                     return;
                 }
@@ -296,10 +472,13 @@ namespace quill {
                 task.task = task_ptr;
                 task.depth = task_depth;
                 task.execution_time = 0;
+                task.worker_who_created_this_task = to_push_id;
+                task.ID = worker_deques[to_push_id].AC+1
+                worker_deques[to_push_id].AC+=1;
                 worker_deques[to_push_id].push(task);
                 return;
             }
-        }
+        } 
     }
 
     // parallel_for implememtaion where it will take the top most task and break into number equal to NUMA domains, and then call async to put the task into deque of any worker
@@ -347,38 +526,24 @@ namespace quill {
         else {
             // first check steal in its own numa domain
             // with help of worker ID, get its NUMA Domain, and then get all workerIDS RANGE IN that domain
-            int Numa_node_of_worker = core_to_numa_mapping[worker_id];
-            // Now using this Numa_node_of_worker select randomly any id 
-            int steal_worker_id = -1;
-            while(steal_worker_id==-1 || steal_worker_id == worker_id){
-                steal_worker_id = numa_domains[Numa_node_of_worker][rand() % numa_domains[Numa_node_of_worker].size()];
-            }
-            if (worker_deques[steal_worker_id].steal(task)) {
-                task_depth = task.depth + 1;
-                auto start_time = std::chrono::high_resolution_clock::now();
-                (*task.task)();
-                auto end_time = std::chrono::high_resolution_clock::now();
-                task.execution_time = std::chrono::duration<double>(end_time - start_time).count();
-                update_avg_time(task.depth, task.execution_time);
-                // delete &task;  
-                pthread_mutex_lock(&finish_counter_lock);
-                --finish_counter;
-                pthread_mutex_unlock(&finish_counter_lock);
-                task.task = nullptr;  
-                return;
-            }
-            else{
-                // if not steal from local NUMA , then check from other NUMA DOMAINS
-                for (const auto &pair : numa_domains){
-                    if (pair.second.size() > 0 && pair.first != Numa_node_of_worker){
-                        steal_worker_id = pair.second[rand() % pair.second.size()];
-                        break;
-                    }
-                    else{
-                        return;
-                    }
+            if (tracing_enabled){
+                int Numa_node_of_worker = core_to_numa_mapping[worker_id];
+                // Now using this Numa_node_of_worker select randomly any id 
+                int steal_worker_id = -1;
+                while(steal_worker_id==-1 || steal_worker_id == worker_id){
+                    steal_worker_id = numa_domains[Numa_node_of_worker][rand() % numa_domains[Numa_node_of_worker].size()];
                 }
                 if (worker_deques[steal_worker_id].steal(task)) {
+                    // get executing worker id and make a node of struct Linked_list_Node and put that at the end of the linked list
+                    Linked_list_Node* node = new Linked_list_Node();
+                    node->next = nullptr;
+                    node->steal_counter_worker_who_stole = worker_deques[get_worker_id()].SC;
+                    node->worker_who_created_this_task = task.worker_who_created_this_task;
+                    node->task_id = task.ID;
+                    node->worker_who_executed_this_task = get_worker_id();
+                    worker_deques[get_worker_id()].SC += 1;
+                    // now to put node at the end of linkedlist in the struct of worker
+                    worker_deques[get_worker_id()].put_node_at_end_of_linkedlist(node);
                     task_depth = task.depth + 1;
                     auto start_time = std::chrono::high_resolution_clock::now();
                     (*task.task)();
@@ -392,6 +557,44 @@ namespace quill {
                     task.task = nullptr;  
                     return;
                 }
+                else{
+                    // if not steal from local NUMA , then check from other NUMA DOMAINS
+                    for (const auto &pair : numa_domains){
+                        if (pair.second.size() > 0 && pair.first != Numa_node_of_worker){
+                            steal_worker_id = pair.second[rand() % pair.second.size()];
+                            break;
+                        }
+                        else{
+                            return;
+                        }
+                    }
+                    if (worker_deques[steal_worker_id].steal(task)) {
+                        Linked_list_Node* node = new Linked_list_Node();
+                        node->next = nullptr;
+                        node->steal_counter_worker_who_stole = worker_deques[get_worker_id()].SC;
+                        node->worker_who_created_this_task = task.worker_who_created_this_task;
+                        node->task_id = task.ID;
+                        node->worker_who_executed_this_task = get_worker_id();
+                        worker_deques[get_worker_id()].SC += 1;
+                        // now to put node at the end of linkedlist in the struct of worker
+                        worker_deques[get_worker_id()].put_node_at_end_of_linkedlist(node);
+                        task_depth = task.depth + 1;
+                        auto start_time = std::chrono::high_resolution_clock::now();
+                        (*task.task)();
+                        auto end_time = std::chrono::high_resolution_clock::now();
+                        task.execution_time = std::chrono::duration<double>(end_time - start_time).count();
+                        update_avg_time(task.depth, task.execution_time);
+                        // delete &task;  
+                        pthread_mutex_lock(&finish_counter_lock);
+                        --finish_counter;
+                        pthread_mutex_unlock(&finish_counter_lock);
+                        task.task = nullptr;  
+                        return;
+                    }
+                }
+            }
+            else if(replay_enabled){
+
             }
         }
     }

@@ -751,6 +751,7 @@ namespace quill {
                 if (worker_deques[worker_id].stolen_tasks_array[worker_deques[worker_id].SC].task != nullptr){    //NOTE I SUSPECT THERE WILL BE A LOCK FOR SC
                     worker_deques[worker_id].SC +=1;
                     // execute task
+                    int index = worker_deques[worker_id].SC - 1; //this will be the index at which the task is.
                     task_depth = worker_deques[worker_id].stolen_tasks_array[index].depth + 1;
                     auto start_time = std::chrono::high_resolution_clock::now();
                     (*(worker_deques[worker_id].stolen_tasks_array[index].task))(); 

@@ -53,17 +53,19 @@ void recurse(uint64_t low, uint64_t high) {
 }
 
 void runParallel() {
+  quill::start_tracing();
   for(int i=0; i<ITERATIONS; i++) {
     // give recurse(1, SIZE+1); to parallel_for
     
     quill::start_finish();
-    hclib::start_tracing();
     quill::parallel_for(1, SIZE + 1, [](int start, int end) {
       // This is the body that gets executed for each chunk
       recurse(start, end);
     });
     quill::end_finish();
-    hclib::stop_tracing();
+    if (i == 0){
+      quill::stop_tracing();
+    }
     double* temp = myNew;
     myNew = myVal;
     myVal = temp;

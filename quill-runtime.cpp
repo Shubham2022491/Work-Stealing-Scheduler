@@ -377,6 +377,7 @@ namespace quill {
             list_aggregation(num_numa_domains * num_workers); // See Lecture #13, Slides #35-36
             list_sorting(num_numa_domains * num_workers); // See Lecture #13, Slides #37
             create_array_to_store_stolen_task(num_numa_domains * num_workers); // See Lecture #13, Slides #39-40
+            tracing_enabled = false;
             replay_enabled = true;
         }
     }

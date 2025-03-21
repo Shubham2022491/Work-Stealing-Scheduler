@@ -214,7 +214,7 @@ namespace quill {
 
     void reset_worker_AC_counter(int tot_workers){
         for (int worker_id = 0; worker_id < tot_workers; ++worker_id){
-            worker_deques[worker_id].AC = (worker_id)*(UINT_MAX/tot_workers);
+            worker_deques[worker_id].AC = (worker_id)*(INT_MAX/tot_workers);
         }
     }
 
@@ -364,15 +364,15 @@ namespace quill {
     static int replay_enabled = false;
 
 
-    void hclib::start_tracing() {
+    void start_tracing() {
         tracing_enabled = true;
         reset_worker_AC_counter(num_numa_domains * num_workers); // See Lecture #13, Slides #16
         /* Each worker’s AC value set to (workerID * UINT_MAX/numWorkers) */
-        reset_worker_SC_counters(num_numa_domains * num_workers);
+        reset_worker_SC_counter(num_numa_domains * num_workers);
     }
 
 
-    void hclib::stop_tracing() {
+    void stop_tracing() {
         if(replay_enabled == false) {
             list_aggregation(num_numa_domains * num_workers); // See Lecture #13, Slides #35-36
             list_sorting(num_numa_domains * num_workers); // See Lecture #13, Slides #37
@@ -436,7 +436,7 @@ namespace quill {
                         task.depth = task_depth;
                         task.execution_time = 0;
                         task.worker_who_created_this_task = to_push_id;
-                        task.ID = worker_deques[to_push_id].AC+1
+                        task.ID = worker_deques[to_push_id].AC+1;
                         worker_deques[to_push_id].AC+=1;
                         worker_deques[to_push_id].push(task);
                         return;
@@ -455,7 +455,7 @@ namespace quill {
                     task.depth = task_depth;
                     task.execution_time = 0;
                     task.worker_who_created_this_task = to_push_id;
-                    task.ID = worker_deques[to_push_id].AC+1
+                    task.ID = worker_deques[to_push_id].AC+1;
                     worker_deques[to_push_id].AC+=1;
                     worker_deques[to_push_id].push(task);
                     return;
@@ -474,7 +474,7 @@ namespace quill {
                         task.depth = task_depth;
                         task.execution_time = 0;
                         task.worker_who_created_this_task = to_push_id;
-                        task.ID = worker_deques[to_push_id].AC+1
+                        task.ID = worker_deques[to_push_id].AC+1;
                         worker_deques[to_push_id].AC+=1;
                         worker_deques[to_push_id].push(task);
                         return;
@@ -493,7 +493,7 @@ namespace quill {
                     task.depth = task_depth;
                     task.execution_time = 0;
                     task.worker_who_created_this_task = to_push_id;
-                    task.ID = worker_deques[to_push_id].AC+1
+                    task.ID = worker_deques[to_push_id].AC+1;
                     worker_deques[to_push_id].AC+=1;
                     worker_deques[to_push_id].push(task);
                     return;
@@ -542,7 +542,7 @@ namespace quill {
                     task.depth = task_depth;
                     task.execution_time = 0;
                     task.worker_who_created_this_task = to_push_id;
-                    task.ID = worker_deques[to_push_id].AC+1
+                    task.ID = worker_deques[to_push_id].AC+1;
                     worker_deques[to_push_id].AC+=1;
                     // worker_deques[to_push_id].push(task);
                     // get the id of the worker who stole this task
@@ -570,7 +570,7 @@ namespace quill {
                         task.depth = task_depth;
                         task.execution_time = 0;
                         task.worker_who_created_this_task = to_push_id;
-                        task.ID = worker_deques[to_push_id].AC+1
+                        task.ID = worker_deques[to_push_id].AC+1;
                         worker_deques[to_push_id].AC+=1;
                         // worker_deques[to_push_id].push(task);
                         // get the id of the worker who stole this task
@@ -598,7 +598,7 @@ namespace quill {
                     task.depth = task_depth;
                     task.execution_time = 0;
                     task.worker_who_created_this_task = to_push_id;
-                    task.ID = worker_deques[to_push_id].AC+1
+                    task.ID = worker_deques[to_push_id].AC+1;
                     worker_deques[to_push_id].AC+=1;
                     // worker_deques[to_push_id].push(task);
                     // get the id of the worker who stole this task

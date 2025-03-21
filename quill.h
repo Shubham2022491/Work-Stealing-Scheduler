@@ -12,7 +12,8 @@ namespace quill {
     // Runtime initialization and finalization
     void init_runtime(size_t size);        // Function to initialize the Quill runtime
     void finalize_runtime(size_t size);    // Function to finalize the Quill runtime
-    
+    void stop_tracing();
+    void start_tracing();
 }
 
 #endif // QUILL_H

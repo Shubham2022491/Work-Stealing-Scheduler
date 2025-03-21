@@ -6,6 +6,9 @@
 #include <vector>
 #include <memory>
 #include <array>
+#include <climits>
+#include <iostream>
+
 
 namespace quill {
 

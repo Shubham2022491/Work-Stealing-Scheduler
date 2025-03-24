@@ -369,7 +369,7 @@ namespace quill {
         else {
             // first check steal in its own numa domain
             // with help of worker ID, get its NUMA Domain, and then get all workerIDS RANGE IN that domain
-            int Numa_node_of_worker = core_to_numa_mapping[worker_id];
+            int Numa_node_of_worker = core_to_numa_mapping[Worker_to_core_mapping[worker_id]];
             // Now using this Numa_node_of_worker select randomly any id 
             int steal_worker_id = -1;
             while(steal_worker_id==-1 || steal_worker_id == worker_id){

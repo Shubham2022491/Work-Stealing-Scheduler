@@ -31,7 +31,9 @@ namespace quill {
     std::vector<WorkerDeque<DEQUE_SIZE>> worker_deques;
     std::vector<pthread_t> workers;
     std::vector<int*> numa_memory(num_numa_domains);
-    std::vector<int> core_to_numa_mapping(num_workers);
+    // std::vector<int> core_to_numa_mapping(num_workers);. make it a hasmap
+    std::map<int, int> core_to_numa_mapping;
+    std::map<int, int> Worker_to_core_mapping;
 
 
     thread_local int worker_id = 0; 
@@ -144,17 +146,38 @@ namespace quill {
         }
     }
 
+    int get_core_id_on_numanode(int numa_node) {
+        if (numa_node < 0 || numa_node > numa_max_node()) {
+            throw std::invalid_argument("Invalid NUMA node");
+        }
+    
+        // Get all cores (CPUs) available on the NUMA node
+        struct bitmask* cpus = numa_allocate_cpumask();
+        numa_node_to_cpus(numa_node, cpus);
+    
+        for (int core_id = 0; core_id < numa_num_configured_cpus(); ++core_id) {
+            // Check if the core is in the NUMA node and not already assigned
+            if (numa_bitmask_isbitset(cpus, core_id) && core_to_numa_mapping.find(core_id) == core_to_numa_mapping.end()) {
+                numa_free_cpumask(cpus);
+                return core_id; // Return the available core
+            }
+        }
+    
+        numa_free_cpumask(cpus);
+        throw std::runtime_error("No available cores on NUMA node " + std::to_string(numa_node));
+    }
+
     void setup_worker_deques() {
+        
         int total_workers = num_numa_domains * num_workers;
         core_to_numa_mapping.resize(total_workers);
     
         for (int worker_id = 0; worker_id < total_workers; ++worker_id) {
-            int core_id = worker_id; // Assuming 1-to-1 mapping for simplicity
-            int numa_node = numa_node_of_cpu(core_id); // Get NUMA node of core
-    
-            // Store the NUMA node for this core
-            core_to_numa_mapping[worker_id] = numa_node;
+            int numa_node = worker_id % num_numa_domains;
+            int core_id = get_core_id_on_numanode(numa_node);
+            core_to_numa_mapping[core_id] = numa_node;
             numa_domains[numa_node].push_back(worker_id);
+            Worker_to_core_mapping[worker_id] = core_id;
             // Allocate deque in the same NUMA domain as the core
             worker_deques[worker_id] = *numa_alloc<WorkerDeque<DEQUE_SIZE>>(1, numa_node);
     
@@ -216,7 +239,6 @@ namespace quill {
             if (pthread_create(&workers[i], nullptr, (void*(*)(void*))worker_func, (void*)(intptr_t)i) != 0) {
                 throw std::runtime_error("Failed to create worker thread");
             }
-            // std::cout<<"Worker "<<i<<" created"<<std::endl;
         }
         // std::cout << "Quill runtime initialized with " << num_workers << " threads." << std::endl;
     }
@@ -398,8 +420,10 @@ namespace quill {
 
     void worker_func(void* arg) {
         worker_id = (intptr_t)arg;
-        int numa_domain = worker_id / num_workers;
-        int core_id = worker_id % num_workers;
+        // int numa_domain = worker_id / num_workers;
+        // int core_id = worker_id % num_workers;
+        int numa_domain = core_to_numa_mapping[Worker_to_core_mapping[worker_id]];
+        int core_id = Worker_to_core_mapping[worker_id];
 
         // Bind thread to NUMA domain
         numa_run_on_node(numa_domain);

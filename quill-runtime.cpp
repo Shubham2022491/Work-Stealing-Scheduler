@@ -170,7 +170,7 @@ namespace quill {
     void setup_worker_deques() {
         
         int total_workers = num_numa_domains * num_workers;
-        core_to_numa_mapping.resize(total_workers);
+        // core_to_numa_mapping.resize(total_workers);
     
         for (int worker_id = 0; worker_id < total_workers; ++worker_id) {
             int numa_node = worker_id % num_numa_domains;

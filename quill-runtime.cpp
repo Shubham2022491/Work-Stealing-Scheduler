@@ -188,7 +188,12 @@ namespace quill {
 
     void allocate_numa_memory(size_t size) {
         // Get the number of available NUMA domains
-        num_numa_domains = numa_max_node() + 1;
+        // num_numa_domains = numa_max_node() + 1;
+        const char* worke = std::getenv("NUMA_DOMAINS");
+        if (worke) {
+            num_numa_domains= std::stoi(worke);
+        }
+        std:: cout << num_numa_domains << std::endl;
         if (num_numa_domains < 1) {
             num_numa_domains = 1; // Fallback to 1 NUMA domain if NUMA is not available
         }
@@ -240,7 +245,8 @@ namespace quill {
                 throw std::runtime_error("Failed to create worker thread");
             }
         }
-        // std::cout << "Quill runtime initialized with " << num_workers << " threads." << std::endl;
+    
+        // std::cout << "Quill runtime initialized with " << num_workers < " threads." << std::endl;
     }
 
     volatile int finish_counter = 0;
@@ -374,8 +380,13 @@ namespace quill {
             int steal_worker_id = -1;
             while(steal_worker_id==-1 || steal_worker_id == worker_id){
                 steal_worker_id = numa_domains[Numa_node_of_worker][rand() % numa_domains[Numa_node_of_worker].size()];
+                // std:: cout << "steal_worker_id : " << steal_worker_id << std::endl;
+                
+                // std:: cout << "worker_id : " << worker_id << std::endl;
             }
             if (worker_deques[steal_worker_id].steal(task)) {
+                // std:: cout << "worker_id : " << worker_id << std::endl;
+                // std:: cout << "steal_worker_id : " << steal_worker_id << std::endl;
                 task_depth = task.depth + 1;
                 auto start_time = std::chrono::high_resolution_clock::now();
                 (*task.task)();
@@ -396,11 +407,13 @@ namespace quill {
                         steal_worker_id = pair.second[rand() % pair.second.size()];
                         break;
                     }
+                    // std:: cout << "worker_id : " << worker_id << std::endl;
                     else{
                         return;
                     }
                 }
                 if (worker_deques[steal_worker_id].steal(task)) {
+                    std:: cout << "steal_worker_id from other domain: " << steal_worker_id << std::endl;
                     task_depth = task.depth + 1;
                     auto start_time = std::chrono::high_resolution_clock::now();
                     (*task.task)();

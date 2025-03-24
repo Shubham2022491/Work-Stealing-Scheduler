@@ -5,60 +5,38 @@
 #include <cstdlib>
 #include <stdexcept>
 #include <vector>
-#include <chrono> 
-#include <map>
 
 #include <pthread.h>
 using namespace std;
 
-
 namespace quill {
 
-    thread_local int task_depth = 0;
     int num_workers = 1; 
     constexpr size_t DEQUE_SIZE = 50;  
   
 
     pthread_t master_thread;
     pthread_mutex_t finish_counter_lock = PTHREAD_MUTEX_INITIALIZER;
-    std::map<int, double> avg_time_per_level;  
-    std::map<int, pthread_mutex_t> level_locks;  
-    
 
-    void init_mutex_for_level(int level) {
-        static pthread_mutex_t global_mutex = PTHREAD_MUTEX_INITIALIZER;
-        
-        pthread_mutex_lock(&global_mutex);  // Lock global mutex to ensure safe initialization
-        if (level_locks.find(level) == level_locks.end()) {
-            pthread_mutex_t new_mutex = PTHREAD_MUTEX_INITIALIZER;
-            level_locks[level] = new_mutex;  // Assign new mutex for the level
-        }
-        pthread_mutex_unlock(&global_mutex);
-    }
-
-    void update_avg_time(int level, double execution_time) {
-        init_mutex_for_level(level);  // Ensure mutex exists for the level
-
-        pthread_mutex_lock(&level_locks[level]);  // Lock mutex for this level
-
-        if (avg_time_per_level.find(level) != avg_time_per_level.end()) {
-            avg_time_per_level[level] = (avg_time_per_level[level] + execution_time) / 2.0;
-        } else {
-            avg_time_per_level[level] = execution_time;
-        }
-
-        pthread_mutex_unlock(&level_locks[level]);  // Unlock after updating
-    }
 
     template <size_t DEQUE_SIZE>
     WorkerDeque<DEQUE_SIZE>::WorkerDeque() : head(0), tail(0) {
         pthread_mutex_init(&lock, nullptr); 
+        list_head = nullptr;
+    }
+
+    template <size_t DEQUE_SIZE>
+    void WorkerDeque<DEQUE_SIZE>::put_node_at_end_of_linkedlist(Linked_List_Node* node){
+        if(list_head == nullptr) list_head = node;
+        else{
+            Linked_List_Node* current = list_head;
+            while(current->next_node != nullptr) current = current->next_node;
+            current->next_node = node;
+        }
     }
 
     
     template <size_t DEQUE_SIZE>
-    // the push function will now take a task object
-
     void WorkerDeque<DEQUE_SIZE>::push(Task task) {
         
         int nextTail = (tail + 1) % DEQUE_SIZE; 
@@ -73,10 +51,9 @@ namespace quill {
             
     }
 
+
     
     template <size_t DEQUE_SIZE>
-    // the pop function will now take a task object
-    
     bool WorkerDeque<DEQUE_SIZE>::steal(Task &task) {
         pthread_mutex_lock(&lock);
 
@@ -91,6 +68,7 @@ namespace quill {
         pthread_mutex_unlock(&lock);
         return true;
     }
+
 
 
     template <size_t DEQUE_SIZE>
@@ -123,7 +101,8 @@ namespace quill {
         }
         worker_deques.resize(num_workers);
         workers.resize(num_workers);
-        
+        // master_thread = pthread_self(); 
+
         for (int i = 1; i < num_workers; ++i) {
             if (pthread_create(&workers[i], nullptr, (void*(*)(void*))worker_func, (void*)(intptr_t)i) != 0) {
                 throw std::runtime_error("Failed to create worker thread");
@@ -135,8 +114,148 @@ namespace quill {
 
     volatile int finish_counter = 0;
     void start_finish() {
+        \
         finish_counter = 0;
         // cout<<"Finish Counter: "<<finish_counter<<endl;
+    }
+
+    void reset_AC_counter(){
+        for(int worker_id=0; worker_id<num_workers; worker_id++){
+            worker_deques[worker_id].AC = worker_id * UINT_MAX/num_workers;
+        }
+    }
+
+    void reset_SC_counter(){
+        for(int worker_id=0; worker_id<num_workers; worker_id++){
+            worker_deques[worker_id].SC = 0;
+        }
+    }
+
+    static int tracing_enabled = false;
+    static int replay_enabled = false;
+
+    void start_tracing(){
+        tracing_enabled = true;
+        reset_AC_counter();
+        reset_SC_counter();
+    }
+
+    void list_aggregation(){
+        Linked_List_Node* current_linked_list[num_workers] = {nullptr};
+        Linked_List_Node* current_linked_list_tail[num_workers] = {nullptr};
+        
+        for(int i=0; i<num_workers; i++){
+            Linked_List_Node* curr_node = worker_deques[i].list_head;
+            while(curr_node != nullptr){
+                int task_creator = curr_node->worker_who_created_task;
+                
+                if(current_linked_list[task_creator] == nullptr){
+                    current_linked_list[task_creator] = curr_node;
+                    current_linked_list_tail[task_creator] = curr_node;
+                    current_linked_list_tail[task_creator] -> next_node = nullptr;
+                }
+                else{
+                    current_linked_list_tail[task_creator]->next_node = curr_node;
+                    current_linked_list_tail[task_creator]= current_linked_list_tail[task_creator]->next_node;
+                    current_linked_list_tail[task_creator] -> next_node = nullptr;
+                } 
+
+                curr_node = curr_node -> next_node;
+            }
+        }
+
+        for (int i = 0; i < num_workers; ++i) {
+            worker_deques[i].list_head = current_linked_list[i];
+        }
+    }
+
+
+        // Function to split a linked list into two halves
+    void splitList(Linked_List_Node* source, Linked_List_Node** front, Linked_List_Node** back) {
+            if (source == nullptr || source->next_node == nullptr) {
+                *front = source;
+                *back = nullptr;
+                return;
+            }
+    
+            Linked_List_Node* slow = source;
+            Linked_List_Node* fast = source->next_node;
+    
+            while (fast != nullptr) {
+                fast = fast->next_node;
+                if (fast != nullptr) {
+                    slow = slow->next_node;
+                    fast = fast->next_node;
+                }
+            }
+    
+            *front = source;
+            *back = slow->next_node;
+            slow->next_node = nullptr; // Split into two lists
+        }
+    
+        // Function to merge two sorted linked lists
+        Linked_List_Node* sortedMerge(Linked_List_Node* a, Linked_List_Node* b) {
+            if (a == nullptr) return b;
+            if (b == nullptr) return a;
+    
+            Linked_List_Node* result = nullptr;
+    
+            if (a->id <= b->id) {
+                result = a;
+                result->next_node = sortedMerge(a->next_node, b);
+            } else {
+                result = b;
+                result->next_node = sortedMerge(a, b->next_node);
+            }
+            return result;
+        }
+    
+        // Recursive merge sort for linked list
+        Linked_List_Node* mergeSort(Linked_List_Node* head) {
+            if (head == nullptr || head->next_node == nullptr) {
+                return head;
+            }
+    
+            Linked_List_Node* a;
+            Linked_List_Node* b;
+    
+            // Split the list into two halves
+            splitList(head, &a, &b);
+    
+            // Recursively sort the two halves
+            a = mergeSort(a);
+            b = mergeSort(b);
+    
+            // Merge the sorted halves
+            return sortedMerge(a, b);
+        }
+    
+    
+    void list_sorting(){
+            for (int i = 0; i < num_workers; ++i) {
+                worker_deques[i].list_head = mergeSort(worker_deques[i].list_head);
+            }
+        }
+    
+    void create_steal_array(){
+        for(int i=0; i<num_workers; i++){
+            if (worker_deques[i].SC == 0) 
+            worker_deques[i].tasks_stolen_array = {nullptr};
+            else{
+                worker_deques[i].tasks_stolen_array.resize(worker_deques[i].SC, nullptr);
+            }
+        }
+    }
+
+    void stop_tracing(){
+        if (!replay_enabled){
+            replay_enabled = true;
+            tracing_enabled = false;
+            list_aggregation();
+            list_sorting();
+            create_steal_array();
+        }
     }
 
     thread_local int worker_id = 0; 
@@ -147,40 +266,40 @@ namespace quill {
 
     
     void async(std::function<void()> &&lambda) {
-        // if level closed then aggregate the task and finish its execution
-        // else estimate the average time to complete the task at that level and then decide whether to execute the task or not
-        // if there is no average time at that level then push the task into the deque of the worker
-        // else check the average time of that level and then decide whether to execute the task or not
-        // if the average time is less than the estimated time then push the task into the deque of the worker
-        // else execute the task
-        if (avg_time_per_level.find(task_depth) != avg_time_per_level.end()) {
-            if (avg_time_per_level[task_depth] > 0.01) {
-                pthread_mutex_lock(&finish_counter_lock);
-                finish_counter++;
-                pthread_mutex_unlock(&finish_counter_lock);
-                std::function<void()>* task_ptr = new std::function<void()>(std::move(lambda));
-                Task task;
-                task.task = task_ptr;
-                task.depth = task_depth;
-                task.execution_time = 0;
-                worker_deques[get_worker_id()].push(task);
-                return;
-            }
-            else{
-                lambda();
-            }
-        }
-        else {
-            pthread_mutex_lock(&finish_counter_lock);
-            finish_counter++;
-            pthread_mutex_unlock(&finish_counter_lock);
+     
+        pthread_mutex_lock(&finish_counter_lock);
+        finish_counter++;
+        pthread_mutex_unlock(&finish_counter_lock);
+
+        int worker_id = get_worker_id();
+        if(tracing_enabled){
             std::function<void()>* task_ptr = new std::function<void()>(std::move(lambda));
             Task task;
             task.task = task_ptr;
-            task.depth = task_depth;
-            task.execution_time = 0;
-            worker_deques[get_worker_id()].push(task);
+            task.id = worker_deques[worker_id].AC+1;
+            task.worker_who_created_task = worker_id;
+            worker_deques[worker_id].AC++;
+            worker_deques[worker_id].push(task);
             return;
+        }
+        else if(replay_enabled){
+            std::function<void()>* task_ptr = new std::function<void()>(std::move(lambda));
+            Task task;
+            task.task = task_ptr;
+            task.id = worker_deques[worker_id].AC+1;
+            task.worker_who_created_task = worker_id;
+            worker_deques[worker_id].AC++;
+            worker_deques[worker_id].push(task);
+
+            Linked_List_Node* curr_node = worker_deques[worker_id].list_head;
+            while(curr_node!=nullptr && curr_node->id != task.id) curr_node = curr_node -> next_node;
+
+            if(curr_node == nullptr){
+                worker_deques[worker_id].push(task);
+            }else{
+                int id_worker_who_executed = curr_node->worker_who_stole_task;
+                worker_deques[id_worker_who_executed].tasks_stolen_array[worker_deques[id_worker_who_executed].SC] = &task;
+            }
         }
     }
 
@@ -190,15 +309,9 @@ namespace quill {
         // WorkerDeque& deque = worker_deques[worker_id];
         Task task;
 
+
         if (worker_deques[worker_id].pop(task)) {
-            // give a code that starts a timer here to check the execution time of the task
-            task_depth = task.depth + 1;
-            auto start_time = std::chrono::high_resolution_clock::now();
-            (*task.task)();
-            auto end_time = std::chrono::high_resolution_clock::now();
-            task.execution_time = std::chrono::duration<double>(end_time - start_time).count();
-            update_avg_time(task.depth, task.execution_time);
-            
+            (*task.task)();  
             // delete &task;  
             pthread_mutex_lock(&finish_counter_lock);
             --finish_counter;
@@ -206,21 +319,43 @@ namespace quill {
             task.task = nullptr;
         } 
         else {
-           
-            for (int i = 0; i < num_workers; ++i) {
-                if (i != worker_id && worker_deques[i].steal(task)) {
-                    task_depth = task.depth + 1;
-                    auto start_time = std::chrono::high_resolution_clock::now();
-                    (*task.task)();
-                    auto end_time = std::chrono::high_resolution_clock::now();
-                    task.execution_time = std::chrono::duration<double>(end_time - start_time).count();
-                    update_avg_time(task.depth, task.execution_time);
-                    // delete &task;  
+            if(tracing_enabled){
+                for (int i = 0; i < num_workers; ++i) {
+                    if (i != worker_id && worker_deques[i].steal(task)) {
+                        Linked_List_Node* node = new Linked_List_Node();
+                        node->id = task.id;
+                        node->worker_who_created_task = task.worker_who_created_task;
+                        node->worker_who_stole_task = get_worker_id();
+                        node->SC = worker_deques[get_worker_id()].SC;
+                        node->next_node = nullptr;
+                        worker_deques[get_worker_id()].SC++;
+                        (*task.task)();
+                        // delete &task;  
+                        pthread_mutex_lock(&finish_counter_lock);
+                        --finish_counter;
+                        pthread_mutex_unlock(&finish_counter_lock);
+                        task.task = nullptr;  
+                        return;
+                        }
+                    }
+            }else if (replay_enabled) {
+                Task* task = worker_deques[worker_id].tasks_stolen_array[worker_deques[worker_id].SC]; // ✅ Get the task pointer
+                
+                if (task != nullptr) {  // Ensure the task is valid
+                    pthread_mutex_lock(&worker_deques[worker_id].lock); // Lock before modifying SC
+                    int index = worker_deques[worker_id].SC;
+                    worker_deques[worker_id].SC += 1;
+                    pthread_mutex_unlock(&worker_deques[worker_id].lock); // Unlock after modifying SC
+            
+                    (*(task->task))();
+            
+                    // Protect finish_counter
                     pthread_mutex_lock(&finish_counter_lock);
                     --finish_counter;
                     pthread_mutex_unlock(&finish_counter_lock);
-                    task.task = nullptr;  
-                    return;
+            
+                    // Mark task as completed
+                    worker_deques[worker_id].tasks_stolen_array[index] = nullptr;  
                 }
             }
         }
@@ -250,13 +385,6 @@ namespace quill {
         for (int i = 1; i < num_workers; ++i) {
             pthread_join(workers[i], nullptr);
         }
-        std::cout << "Average time per level: ";
-        for (const std::pair<int, double>p : avg_time_per_level) {
-            std::cout << "{ " << p.first << " : " << p.second << " } ";
-        }
-        std::cout << std::endl;
-
-
     }
     
 }

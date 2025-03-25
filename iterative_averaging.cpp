@@ -17,7 +17,7 @@
 
 //48 * 256 * 2048
 #define SIZE 25165824
-#define ITERATIONS 64
+#define ITERATIONS 4
 
 double* myNew, *myVal;
 int n;
@@ -68,7 +68,7 @@ void runParallel() {
       quill::stop_tracing();
       // std::cout << "Ran stop tracing" << std::endl;
     }
-    // std::cout<<i<<"\n";
+    std::cout<<"iteration: "<<i<<" Done"<<std::endl;
     double* temp = myNew;
     myNew = myVal;
     myVal = temp;

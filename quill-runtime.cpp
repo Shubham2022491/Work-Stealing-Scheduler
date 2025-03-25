@@ -320,6 +320,12 @@ namespace quill {
     void start_finish() {
         finish_counter = 0;
         // cout<<"Finish Counter: "<<finish_counter<<endl;
+        reset_worker_AC_counter(num_workers);
+        reset_worker_SC_counter(num_workers);
+        for (int worker_id = 0; worker_id < num_workers; ++worker_id){
+            worker_deques[worker_id].head = 0;
+            worker_deques[worker_id].tail = 0;
+        }
     }
 
     void async(std::function<void()> &&lambda) {
@@ -380,10 +386,10 @@ namespace quill {
             int id_worker_who_executed = current_->worker_who_executed_this_task;
             // std::cout<<"check7"<<std::endl;
             // NEED LOCK ON SC
-            pthread_mutex_lock(&worker_deques[id_worker_who_executed].SC_lock);
+            // pthread_mutex_lock(&worker_deques[id_worker_who_executed].SC_lock);
             worker_deques[id_worker_who_executed].stolen_tasks_array[worker_deques[id_worker_who_executed].SC] = task;
-            pthread_mutex_unlock(&worker_deques[id_worker_who_executed].SC_lock);
-            std::cout<<"given task to: "<<id_worker_who_executed<<std::endl;
+            // pthread_mutex_unlock(&worker_deques[id_worker_who_executed].SC_lock);
+            std::cout<<"Task_id: "<<task.ID<<" given task to: "<<id_worker_who_executed<<std::endl;
             
             // worker_deques[id_worker_who_executed].SC+=1;
             return;
@@ -429,7 +435,7 @@ namespace quill {
             }
             else if (replay_enabled){
                 // no stealing from other deques from the tail side, now give the same tasks to those who initially stole them.
-                pthread_mutex_lock(&worker_deques[worker_id].SC_lock);
+                // pthread_mutex_lock(&worker_deques[worker_id].SC_lock);
                 if (worker_deques[worker_id].stolen_tasks_array[worker_deques[worker_id].SC].task != nullptr){    //NOTE I SUSPECT THERE WILL BE A LOCK FOR SC
                     worker_deques[worker_id].SC +=1;
                     // execute task
@@ -440,7 +446,7 @@ namespace quill {
                     pthread_mutex_unlock(&finish_counter_lock);
                     worker_deques[worker_id].stolen_tasks_array[index].task = nullptr;  
                 }
-                pthread_mutex_unlock(&worker_deques[worker_id].SC_lock);
+                // pthread_mutex_unlock(&worker_deques[worker_id].SC_lock);
             }
         }
     }

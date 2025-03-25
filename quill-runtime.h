@@ -29,11 +29,12 @@ template <size_t DEQUE_SIZE>
 struct WorkerDeque {
     std::array<Task, DEQUE_SIZE> tasks;
     Linked_List_Node* list_head;
+    Linked_List_Node* aggregated_list_head;
     volatile int head;   
     volatile int tail;    
     pthread_mutex_t lock; 
-    unsigned int AC;
-    unsigned int SC;
+    volatile unsigned int AC;
+    volatile unsigned int SC;
     std::vector<Task*> tasks_stolen_array;
 
     WorkerDeque();

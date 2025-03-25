@@ -22,7 +22,7 @@ namespace quill {
     template <size_t DEQUE_SIZE>
     WorkerDeque<DEQUE_SIZE>::WorkerDeque() : head(0), tail(0) {
         pthread_mutex_init(&lock, nullptr); 
-        list_head = nullptr;
+        //list_head = nullptr;
     }
 
     template <size_t DEQUE_SIZE>
@@ -33,6 +33,7 @@ namespace quill {
             while(current->next_node != nullptr) current = current->next_node;
             current->next_node = node;
         }
+        //cout<<list_head->worker_who_created_task<<" "<<list_head->worker_who_stole_task<<"CHECK\n";
     }
 
     
@@ -114,14 +115,13 @@ namespace quill {
 
     volatile int finish_counter = 0;
     void start_finish() {
-        \
         finish_counter = 0;
         // cout<<"Finish Counter: "<<finish_counter<<endl;
     }
 
     void reset_AC_counter(){
         for(int worker_id=0; worker_id<num_workers; worker_id++){
-            worker_deques[worker_id].AC = worker_id * UINT_MAX/num_workers;
+            worker_deques[worker_id].AC = worker_id * INT_MAX/num_workers;
         }
     }
 
@@ -146,29 +146,42 @@ namespace quill {
         
         for(int i=0; i<num_workers; i++){
             Linked_List_Node* curr_node = worker_deques[i].list_head;
+            worker_deques[i].list_head = nullptr;
             while(curr_node != nullptr){
+                //cout<<curr_node->worker_who_created_task<<" "<<i<<"\n";
                 int task_creator = curr_node->worker_who_created_task;
                 
                 if(current_linked_list[task_creator] == nullptr){
                     current_linked_list[task_creator] = curr_node;
                     current_linked_list_tail[task_creator] = curr_node;
-                    current_linked_list_tail[task_creator] -> next_node = nullptr;
+                    //current_linked_list_tail[task_creator] -> next_node = nullptr;
                 }
                 else{
                     current_linked_list_tail[task_creator]->next_node = curr_node;
-                    current_linked_list_tail[task_creator]= current_linked_list_tail[task_creator]->next_node;
-                    current_linked_list_tail[task_creator] -> next_node = nullptr;
+                    current_linked_list_tail[task_creator]= curr_node;
+                    //current_linked_list_tail[task_creator] -> next_node = nullptr;
                 } 
 
                 curr_node = curr_node -> next_node;
             }
         }
 
-        for (int i = 0; i < num_workers; ++i) {
-            worker_deques[i].list_head = current_linked_list[i];
-        }
-    }
 
+        for (int i = 0; i < num_workers; ++i) {
+            if (current_linked_list_tail[i] != nullptr) {
+                current_linked_list_tail[i]->next_node = nullptr;
+            }
+        }
+
+        cout<<"KEEP A CHECKONE\n";
+
+        for (int i = 0; i < num_workers; ++i) {
+            worker_deques[i].aggregated_list_head = current_linked_list[i];
+        }
+
+        cout<<"KEEP A CHECKTWO\n";
+
+    }
 
         // Function to split a linked list into two halves
     void splitList(Linked_List_Node* source, Linked_List_Node** front, Linked_List_Node** back) {
@@ -182,7 +195,7 @@ namespace quill {
             Linked_List_Node* fast = source->next_node;
     
             while (fast != nullptr) {
-                fast = fast->next_node;
+                                fast = fast->next_node;
                 if (fast != nullptr) {
                     slow = slow->next_node;
                     fast = fast->next_node;
@@ -234,7 +247,7 @@ namespace quill {
     
     void list_sorting(){
             for (int i = 0; i < num_workers; ++i) {
-                worker_deques[i].list_head = mergeSort(worker_deques[i].list_head);
+                worker_deques[i].aggregated_list_head = mergeSort(worker_deques[i].aggregated_list_head);
             }
         }
     
@@ -245,16 +258,24 @@ namespace quill {
             else{
                 worker_deques[i].tasks_stolen_array.resize(worker_deques[i].SC, nullptr);
             }
+            std::cout << "Created stolen task array of size " << worker_deques[i].SC 
+                      << " for Worker " << i << std::endl;
+
         }
+                    
     }
 
     void stop_tracing(){
         if (!replay_enabled){
+            cout<<"Tracing enabled\n";
+            list_aggregation();
+            cout<<"LIST AGGREGATED\n";
+            list_sorting();
+            cout<<"LIST SORTED\n";
+            create_steal_array();
+            cout<<"STEAL ARRAY CREATED\n";
             replay_enabled = true;
             tracing_enabled = false;
-            list_aggregation();
-            list_sorting();
-            create_steal_array();
         }
     }
 
@@ -267,22 +288,28 @@ namespace quill {
     
     void async(std::function<void()> &&lambda) {
      
-        pthread_mutex_lock(&finish_counter_lock);
-        finish_counter++;
-        pthread_mutex_unlock(&finish_counter_lock);
 
         int worker_id = get_worker_id();
         if(tracing_enabled){
+            pthread_mutex_lock(&finish_counter_lock);
+            finish_counter++;
+            pthread_mutex_unlock(&finish_counter_lock);    
             std::function<void()>* task_ptr = new std::function<void()>(std::move(lambda));
             Task task;
             task.task = task_ptr;
             task.id = worker_deques[worker_id].AC+1;
             task.worker_who_created_task = worker_id;
+            pthread_mutex_lock(&worker_deques[worker_id].lock);
             worker_deques[worker_id].AC++;
+            pthread_mutex_unlock(&worker_deques[worker_id].lock);
             worker_deques[worker_id].push(task);
             return;
         }
         else if(replay_enabled){
+            cout<<"REPLAY ENABLED CHECK "<<worker_id<<"\n";
+            pthread_mutex_lock(&finish_counter_lock);
+            finish_counter++;
+            pthread_mutex_unlock(&finish_counter_lock);    
             std::function<void()>* task_ptr = new std::function<void()>(std::move(lambda));
             Task task;
             task.task = task_ptr;
@@ -291,7 +318,8 @@ namespace quill {
             worker_deques[worker_id].AC++;
             worker_deques[worker_id].push(task);
 
-            Linked_List_Node* curr_node = worker_deques[worker_id].list_head;
+
+            Linked_List_Node* curr_node = worker_deques[worker_id].aggregated_list_head;
             while(curr_node!=nullptr && curr_node->id != task.id) curr_node = curr_node -> next_node;
 
             if(curr_node == nullptr){
@@ -326,9 +354,14 @@ namespace quill {
                         node->id = task.id;
                         node->worker_who_created_task = task.worker_who_created_task;
                         node->worker_who_stole_task = get_worker_id();
-                        node->SC = worker_deques[get_worker_id()].SC;
                         node->next_node = nullptr;
+                        cout<<node->id<<"\n";
+                        //pthread_mutex_lock(&worker_deques[worker_id].lock);
+                        node->SC = worker_deques[get_worker_id()].SC;
                         worker_deques[get_worker_id()].SC++;
+                       //pthread_mutex_unlock(&worker_deques[worker_id].lock);
+
+                        worker_deques[get_worker_id()].put_node_at_end_of_linkedlist(node);
                         (*task.task)();
                         // delete &task;  
                         pthread_mutex_lock(&finish_counter_lock);
@@ -339,13 +372,14 @@ namespace quill {
                         }
                     }
             }else if (replay_enabled) {
+                cout<<"REPLAY STEAL CHECK "<<worker_id<<"\n";
                 Task* task = worker_deques[worker_id].tasks_stolen_array[worker_deques[worker_id].SC]; // ✅ Get the task pointer
                 
                 if (task != nullptr) {  // Ensure the task is valid
-                    pthread_mutex_lock(&worker_deques[worker_id].lock); // Lock before modifying SC
+                    //pthread_mutex_lock(&worker_deques[worker_id].lock); // Lock before modifying SC
                     int index = worker_deques[worker_id].SC;
                     worker_deques[worker_id].SC += 1;
-                    pthread_mutex_unlock(&worker_deques[worker_id].lock); // Unlock after modifying SC
+                    //pthread_mutex_unlock(&worker_deques[worker_id].lock); // Unlock after modifying SC
             
                     (*(task->task))();
             

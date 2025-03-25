@@ -238,8 +238,8 @@ namespace quill {
                 worker_deques[i].stolen_tasks_array[j].task = nullptr; 
             }
             
-            std::cout << "Created stolen task array of size " << worker_deques[i].SC 
-                      << " for Worker " << i << std::endl;
+            // std::cout << "Created stolen task array of size " << worker_deques[i].SC 
+            //           << " for Worker " << i << std::endl;
         }
     }
 
@@ -284,6 +284,8 @@ namespace quill {
             // Print each worker's linked list
             for (int worker_id = 0; worker_id < num_workers; ++worker_id) {
                 print_linked_list(worker_id, &worker_deques[worker_id]);
+                worker_deques[worker_id].head = 0;
+                worker_deques[worker_id].tail = 0;
             }
         }
 
@@ -331,9 +333,11 @@ namespace quill {
             Task task;
             task.task = task_ptr;
             task.worker_who_created_this_task = to_push_id;
+            
             worker_deques[to_push_id].AC+=1;
             task.ID = worker_deques[to_push_id].AC;
             worker_deques[to_push_id].push(task);
+            // std::cout<< "workerid: "<<to_push_id<< " created task_id: "<<task.ID<<std::endl;
             return;
         }
         else if (replay_enabled){
@@ -359,17 +363,22 @@ namespace quill {
             // std::cout<<"check4"<<std::endl;
             Linked_list_Node* current_ = worker_deques[to_push_id].linked_list_head;
             // std::cout<<"check5"<<std::endl;
-            std::cout<<"Id to find in linked list: "<<task.ID<<std::endl;
+            // std::cout<< "Worker_id: " <<to_push_id<<" Id to find in linked list: "<<task.ID<<std::endl;
             while (current_ != nullptr && current_->task_id != task.ID) {
-                std::cout<<current_->task_id<<std::endl;
+                // std::cout<<current_->task_id<<std::endl;
                 current_ = current_->next;
             }
             while(current_ != nullptr && current_->task_id!=task.ID){
                 current_ = current_->next;
             } 
-            std::cout<<"check6"<<std::endl;
+            if (current_ == nullptr){
+                worker_deques[to_push_id].push(task);
+                // std::cout<< "workerid: "<<to_push_id<< " created task_id: "<<task.ID<<std::endl;
+                return;
+            }
+            // std::cout<<"check6"<<std::endl;
             int id_worker_who_executed = current_->worker_who_executed_this_task;
-            std::cout<<"check7"<<std::endl;
+            // std::cout<<"check7"<<std::endl;
             // NEED LOCK ON SC
             pthread_mutex_lock(&worker_deques[id_worker_who_executed].SC_lock);
             worker_deques[id_worker_who_executed].stolen_tasks_array[worker_deques[id_worker_who_executed].SC] = task;
@@ -399,7 +408,7 @@ namespace quill {
                 for (int steal_worker_id = 0; steal_worker_id < num_workers; ++steal_worker_id) {
                     if (steal_worker_id != worker_id && worker_deques[steal_worker_id].steal(task)) {
                         // get executing worker id and make a node of struct Linked_list_Node and put that at the end of the linked list
-                        std::cout<<"~~~~~~~steal~~~~~~~"<<std::endl;
+                        // std::cout<<"~~~~~~~steal~~~~~~~"<<std::endl;
                         Linked_list_Node* node = new Linked_list_Node();
                         node->next = nullptr;
                         node->steal_counter_worker_who_stole = worker_deques[get_worker_id()].SC;

@@ -13,7 +13,7 @@ using namespace std;
 namespace quill {
 
     int num_workers = 1; 
-    constexpr size_t DEQUE_SIZE = 50;  
+    constexpr size_t DEQUE_SIZE = 500;  
   
 
     pthread_t master_thread;

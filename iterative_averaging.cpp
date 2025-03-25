@@ -56,12 +56,17 @@ void runParallel() {
   quill::start_tracing();
   for(int i=0; i<ITERATIONS; i++) {
     // give recurse(1, SIZE+1); to parallel_for
-    std::cout<<i<<"\n";
+    // std::cout<<i<<"\n";
     quill::start_finish();
     recurse(1, SIZE+1);
+    // quill::async([=]() {
+    //   recurse(1, SIZE+1); 
+    // });
     quill::end_finish();
     if (i == 0){
+      std::cout << "Ran tracing" << std::endl;
       quill::stop_tracing();
+      std::cout << "Ran stop tracing" << std::endl;
     }
     std::cout<<i<<"\n";
     double* temp = myNew;

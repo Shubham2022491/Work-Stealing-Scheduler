@@ -23,7 +23,7 @@ namespace quill {
     struct Linked_list_Node{
         int worker_who_created_this_task;
         int worker_who_executed_this_task;
-        unsigned int task_id;
+        unsigned int task_id = 0;
         unsigned int steal_counter_worker_who_stole;
         Linked_list_Node* next; // Pointer to the next node in the linked list
     };
@@ -38,6 +38,7 @@ namespace quill {
         pthread_mutex_t lock; 
         unsigned int AC;
         unsigned int SC;
+        pthread_mutex_t SC_lock;
         // Array to store stolen tasks
         Task* stolen_tasks_array;
         

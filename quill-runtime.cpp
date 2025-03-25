@@ -252,6 +252,24 @@ namespace quill {
         /* Each worker’s AC value set to (workerID * UINT_MAX/numWorkers) */
         reset_worker_SC_counter(num_workers);
     }
+    void print_linked_list(int worker_id, WorkerDeque<DEQUE_SIZE>* deque) {
+        std::cout << "Worker " << worker_id << " Linked List:" << std::endl;
+    
+        Linked_list_Node* current = deque->linked_list_head;
+        if (!current) {
+            std::cout << "  (Empty)" << std::endl;
+            return;
+        }
+    
+        while (current != nullptr) {
+            std::cout << "  Task ID: " << current->task_id
+                      << ", Created By: " << current->worker_who_created_this_task
+                      << ", Executed By: " << current->worker_who_executed_this_task
+                      << ", steal_counter_worker_who_stole: " << current->steal_counter_worker_who_stole
+                      << std::endl;
+            current = current->next;
+        }
+    }
 
     void stop_tracing() {
         if(replay_enabled == false) {
@@ -260,7 +278,16 @@ namespace quill {
             create_array_to_store_stolen_task(num_workers); // See Lecture #13, Slides #39-40
             tracing_enabled = false;
             replay_enabled = true;
+            reset_worker_AC_counter(num_workers);
+            reset_worker_SC_counter(num_workers);
+
+            // Print each worker's linked list
+            for (int worker_id = 0; worker_id < num_workers; ++worker_id) {
+                print_linked_list(worker_id, &worker_deques[worker_id]);
+            }
         }
+
+        
     }
 
     volatile bool shutdown = false;
@@ -276,7 +303,9 @@ namespace quill {
         
         worker_deques.resize(num_workers);
         workers.resize(num_workers);
+        worker_deques[0].SC_lock = PTHREAD_MUTEX_INITIALIZER;
         for (int i = 1; i <num_workers; ++i) {
+            worker_deques[i].SC_lock = PTHREAD_MUTEX_INITIALIZER;
             if (pthread_create(&workers[i], nullptr, (void*(*)(void*))worker_func, (void*)(intptr_t)i) != 0) {
                 throw std::runtime_error("Failed to create worker thread");
             }
@@ -292,6 +321,7 @@ namespace quill {
     }
 
     void async(std::function<void()> &&lambda) {
+        // std::cout << "Async: " << std::endl;
         if (tracing_enabled){
             int to_push_id = get_worker_id();
             pthread_mutex_lock(&finish_counter_lock);
@@ -301,31 +331,51 @@ namespace quill {
             Task task;
             task.task = task_ptr;
             task.worker_who_created_this_task = to_push_id;
-            task.ID = worker_deques[to_push_id].AC+1;
             worker_deques[to_push_id].AC+=1;
+            task.ID = worker_deques[to_push_id].AC;
             worker_deques[to_push_id].push(task);
             return;
         }
         else if (replay_enabled){
+            // std::cout << "replay_enabled: " <<replay_enabled<<std::endl;
+            // put checks at each alternate line
             int to_push_id = get_worker_id();
+            // std::cout<<"check1"<<std::endl;
             pthread_mutex_lock(&finish_counter_lock);
             finish_counter++;
             pthread_mutex_unlock(&finish_counter_lock);
+            // std::cout<<"check2"<<std::endl;
             std::function<void()>* task_ptr = new std::function<void()>(std::move(lambda));
+            // std::cout<<"check3"<<std::endl;
             Task task;
             task.task = task_ptr;
             task.worker_who_created_this_task = to_push_id;
-            task.ID = worker_deques[to_push_id].AC+1;
             worker_deques[to_push_id].AC+=1;
+            task.ID = worker_deques[to_push_id].AC;
+            
             // worker_deques[to_push_id].push(task);
             // get the id of the worker who stole this task
             // find that node in the linked list of this worker that correspons to task.ID
+            // std::cout<<"check4"<<std::endl;
             Linked_list_Node* current_ = worker_deques[to_push_id].linked_list_head;
-            while(current_->task_id!=task.ID){
+            // std::cout<<"check5"<<std::endl;
+            std::cout<<"Id to find in linked list: "<<task.ID<<std::endl;
+            while (current_ != nullptr && current_->task_id != task.ID) {
+                std::cout<<current_->task_id<<std::endl;
+                current_ = current_->next;
+            }
+            while(current_ != nullptr && current_->task_id!=task.ID){
                 current_ = current_->next;
             } 
+            std::cout<<"check6"<<std::endl;
             int id_worker_who_executed = current_->worker_who_executed_this_task;
+            std::cout<<"check7"<<std::endl;
+            // NEED LOCK ON SC
+            pthread_mutex_lock(&worker_deques[id_worker_who_executed].SC_lock);
             worker_deques[id_worker_who_executed].stolen_tasks_array[worker_deques[id_worker_who_executed].SC] = task;
+            pthread_mutex_unlock(&worker_deques[id_worker_who_executed].SC_lock);
+            std::cout<<"given task to: "<<id_worker_who_executed<<std::endl;
+            
             // worker_deques[id_worker_who_executed].SC+=1;
             return;
         }
@@ -349,6 +399,7 @@ namespace quill {
                 for (int steal_worker_id = 0; steal_worker_id < num_workers; ++steal_worker_id) {
                     if (steal_worker_id != worker_id && worker_deques[steal_worker_id].steal(task)) {
                         // get executing worker id and make a node of struct Linked_list_Node and put that at the end of the linked list
+                        std::cout<<"~~~~~~~steal~~~~~~~"<<std::endl;
                         Linked_list_Node* node = new Linked_list_Node();
                         node->next = nullptr;
                         node->steal_counter_worker_who_stole = worker_deques[get_worker_id()].SC;
@@ -369,6 +420,7 @@ namespace quill {
             }
             else if (replay_enabled){
                 // no stealing from other deques from the tail side, now give the same tasks to those who initially stole them.
+                pthread_mutex_lock(&worker_deques[worker_id].SC_lock);
                 if (worker_deques[worker_id].stolen_tasks_array[worker_deques[worker_id].SC].task != nullptr){    //NOTE I SUSPECT THERE WILL BE A LOCK FOR SC
                     worker_deques[worker_id].SC +=1;
                     // execute task
@@ -379,6 +431,7 @@ namespace quill {
                     pthread_mutex_unlock(&finish_counter_lock);
                     worker_deques[worker_id].stolen_tasks_array[index].task = nullptr;  
                 }
+                pthread_mutex_unlock(&worker_deques[worker_id].SC_lock);
             }
         }
     }

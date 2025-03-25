@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <stdexcept>
 #include <vector>
+#include <atomic>
 
 #include <pthread.h>
 using namespace std;
@@ -131,9 +132,10 @@ namespace quill {
         }
     }
 
-    static int tracing_enabled = false;
-    static int replay_enabled = false;
 
+    std::atomic<bool> replay_enabled{false};
+    std::atomic<bool> tracing_enabled{false};
+    
     void start_tracing(){
         tracing_enabled = true;
         reset_AC_counter();
@@ -266,7 +268,7 @@ namespace quill {
     }
 
     void stop_tracing(){
-        if (!replay_enabled){
+        if (!replay_enabled.load(std::memory_order_relaxed)){
             cout<<"Tracing enabled\n";
             list_aggregation();
             cout<<"LIST AGGREGATED\n";
@@ -274,8 +276,8 @@ namespace quill {
             cout<<"LIST SORTED\n";
             create_steal_array();
             cout<<"STEAL ARRAY CREATED\n";
-            replay_enabled = true;
-            tracing_enabled = false;
+            replay_enabled.store(true, std::memory_order_relaxed);
+            tracing_enabled.store(false, std::memory_order_relaxed);
         }
     }
 
@@ -290,7 +292,7 @@ namespace quill {
      
 
         int worker_id = get_worker_id();
-        if(tracing_enabled){
+        if (tracing_enabled.load(std::memory_order_relaxed)){
             pthread_mutex_lock(&finish_counter_lock);
             finish_counter++;
             pthread_mutex_unlock(&finish_counter_lock);    
@@ -305,7 +307,7 @@ namespace quill {
             worker_deques[worker_id].push(task);
             return;
         }
-        else if(replay_enabled){
+        else if(replay_enabled.load(std::memory_order_relaxed)){
             cout<<"REPLAY ENABLED CHECK "<<worker_id<<"\n";
             pthread_mutex_lock(&finish_counter_lock);
             finish_counter++;
@@ -347,7 +349,7 @@ namespace quill {
             task.task = nullptr;
         } 
         else {
-            if(tracing_enabled){
+            if(tracing_enabled.load(std::memory_order_relaxed)){
                 for (int i = 0; i < num_workers; ++i) {
                     if (i != worker_id && worker_deques[i].steal(task)) {
                         Linked_List_Node* node = new Linked_List_Node();
@@ -371,7 +373,7 @@ namespace quill {
                         return;
                         }
                     }
-            }else if (replay_enabled) {
+            }else if (replay_enabled.load(std::memory_order_relaxed)) {
                 cout<<"REPLAY STEAL CHECK "<<worker_id<<"\n";
                 Task* task = worker_deques[worker_id].tasks_stolen_array[worker_deques[worker_id].SC]; // ✅ Get the task pointer
                 

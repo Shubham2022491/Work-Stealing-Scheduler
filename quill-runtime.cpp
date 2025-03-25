@@ -175,13 +175,13 @@ namespace quill {
             }
         }
 
-        cout<<"KEEP A CHECKONE\n";
+        //cout<<"KEEP A CHECKONE\n";
 
         for (int i = 0; i < num_workers; ++i) {
             worker_deques[i].aggregated_list_head = current_linked_list[i];
         }
 
-        cout<<"KEEP A CHECKTWO\n";
+        //cout<<"KEEP A CHECKTWO\n";
 
     }
 
@@ -269,15 +269,16 @@ namespace quill {
 
     void stop_tracing(){
         if (!replay_enabled.load(std::memory_order_relaxed)){
-            cout<<"Tracing enabled\n";
             list_aggregation();
-            cout<<"LIST AGGREGATED\n";
             list_sorting();
-            cout<<"LIST SORTED\n";
             create_steal_array();
-            cout<<"STEAL ARRAY CREATED\n";
+            //reset_AC_counter();
+            reset_SC_counter();    
             replay_enabled.store(true, std::memory_order_relaxed);
             tracing_enabled.store(false, std::memory_order_relaxed);
+        }else{
+            //reset_AC_counter();
+            reset_SC_counter(); 
         }
     }
 
@@ -308,7 +309,7 @@ namespace quill {
             return;
         }
         else if(replay_enabled.load(std::memory_order_relaxed)){
-            cout<<"REPLAY ENABLED CHECK "<<worker_id<<"\n";
+            //cout<<"REPLAY ENABLED CHECK "<<worker_id<<"\n";
             pthread_mutex_lock(&finish_counter_lock);
             finish_counter++;
             pthread_mutex_unlock(&finish_counter_lock);    
@@ -374,7 +375,7 @@ namespace quill {
                         }
                     }
             }else if (replay_enabled.load(std::memory_order_relaxed)) {
-                cout<<"REPLAY STEAL CHECK "<<worker_id<<"\n";
+                //cout<<"REPLAY STEAL CHECK "<<worker_id<<"\n";
                 Task* task = worker_deques[worker_id].tasks_stolen_array[worker_deques[worker_id].SC]; // ✅ Get the task pointer
                 
                 if (task != nullptr) {  // Ensure the task is valid

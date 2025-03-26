@@ -370,10 +370,10 @@ namespace quill {
             Linked_list_Node* current_ = worker_deques[to_push_id].linked_list_head;
             // std::cout<<"check5"<<std::endl;
             // std::cout<< "Worker_id: " <<to_push_id<<" Id to find in linked list: "<<task.ID<<std::endl;
-            while (current_ != nullptr && current_->task_id != task.ID) {
-                // std::cout<<current_->task_id<<std::endl;
-                current_ = current_->next;
-            }
+            // while (current_ != nullptr && current_->task_id != task.ID) {
+            //     // std::cout<<current_->task_id<<std::endl;
+            //     current_ = current_->next;
+            // }
             while(current_ != nullptr && current_->task_id!=task.ID){
                 current_ = current_->next;
             } 
@@ -466,6 +466,13 @@ namespace quill {
         }
         // cout<<"I didnt got a chance"<<endl;
     }
+    void free_linked_list(Linked_list_Node* head) {
+        while (head != nullptr) {
+            Linked_list_Node* temp = head;
+            head = head->next;
+            delete temp;
+        }
+    }
 
     void finalize_runtime() {
         shutdown = true;
@@ -473,6 +480,19 @@ namespace quill {
         for (int i = 1; i < num_workers; ++i) {
             pthread_join(workers[i], nullptr);
         }
+
+        // Free all linked lists for each worker
+        for (int i = 0; i < num_workers; ++i) {
+            Linked_list_Node* head = worker_deques[i].linked_list_head;
+            free_linked_list(head);
+            worker_deques[i].linked_list_head = nullptr; // Prevent dangling pointer
+            // Free the stolen tasks array if allocated
+            if (worker_deques[i].stolen_tasks_array != nullptr) {
+                delete[] worker_deques[i].stolen_tasks_array;
+                worker_deques[i].stolen_tasks_array = nullptr; // Prevent dangling pointer
+            }
+        }
+        std::cout << "All linked lists and array freed successfully." << std::endl;
     } 
 }
 

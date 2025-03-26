@@ -284,7 +284,7 @@ namespace quill {
 
             // Print each worker's linked list
             for (int worker_id = 0; worker_id < num_workers; ++worker_id) {
-                print_linked_list(worker_id, &worker_deques[worker_id]);
+                // print_linked_list(worker_id, &worker_deques[worker_id]);
                 worker_deques[worker_id].head = 0;
                 worker_deques[worker_id].tail = 0;
             }
@@ -390,9 +390,9 @@ namespace quill {
             pthread_mutex_lock(&worker_deques[id_worker_who_executed].SC_lock);
             worker_deques[id_worker_who_executed].stolen_tasks_array[worker_deques[id_worker_who_executed].SC] = task;
             worker_deques[id_worker_who_executed].SC++;
-            std::cout<<"SC counter of the worker who stole: "<<worker_deques[id_worker_who_executed].SC<<std::endl;
+            // std::cout<<"SC counter of the worker who stole: "<<worker_deques[id_worker_who_executed].SC<<std::endl;
             pthread_mutex_unlock(&worker_deques[id_worker_who_executed].SC_lock);
-            std::cout<<"Task_id: "<<task.ID<<" given task to: "<<id_worker_who_executed<<std::endl;
+            // std::cout<<"Task_id: "<<task.ID<<" given task to: "<<id_worker_who_executed<<std::endl;
             
             // worker_deques[id_worker_who_executed].SC+=1;
             return;

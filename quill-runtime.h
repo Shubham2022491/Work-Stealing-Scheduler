@@ -38,6 +38,7 @@ namespace quill {
         pthread_mutex_t lock; 
         unsigned int AC;
         unsigned int SC;
+        unsigned int execution_index_of_array;
         pthread_mutex_t SC_lock;
         // Array to store stolen tasks
         Task* stolen_tasks_array;

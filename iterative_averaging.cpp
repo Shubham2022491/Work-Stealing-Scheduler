@@ -17,7 +17,7 @@
 
 //48 * 256 * 2048
 #define SIZE 25165824
-#define ITERATIONS 64
+#define ITERATIONS 4
 
 double* myNew, *myVal;
 int n;
@@ -72,7 +72,7 @@ void runParallel() {
     double* temp = myNew;
     myNew = myVal;
     myVal = temp;
-    std::cout<<"iteration: "<<i<<" Done"<<std::endl;
+    // std::cout<<"iteration: "<<i<<" Done"<<std::endl;
   }
 }
 

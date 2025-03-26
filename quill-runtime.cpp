@@ -498,7 +498,9 @@ namespace quill {
                 delete[] worker_deques[i].stolen_tasks_array;
                 worker_deques[i].stolen_tasks_array = nullptr; // Prevent dangling pointer
             }
+            pthread_mutex_destroy(&worker_deques[i].SC_lock);
         }
+        pthread_mutex_destroy(&finish_counter_lock);
         std::cout << "All linked lists and array freed successfully." << std::endl;
     } 
 }

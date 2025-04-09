@@ -1,3 +1,4 @@
 make -----> to compile
 export QUILL_WORKERS=4 ------> to set the environment variable
 ./quill_test ----> to run
+Shubham's system has 8 logical cores so -----> export QUILL_WORKERS=8

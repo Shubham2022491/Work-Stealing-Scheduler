@@ -105,6 +105,11 @@ namespace quill {
             }
             // std::cout<<"Worker "<<i<<" created"<<std::endl;
         }
+        // create a dedicated pthread for daemon profiler
+        // pthread_t profiler_thread;
+        // if (pthread_create(&profiler_thread, nullptr, (void*(*)(void*))daemon_profiler, nullptr) != 0) {
+        //     throw std::runtime_error("Failed to create profiler thread");
+        // }
         // std::cout << "Quill runtime initialized with " << num_workers << " threads." << std::endl;
     }
 
@@ -173,6 +178,18 @@ namespace quill {
             find_and_execute_task(worker_id);
         }
     }
+
+    // void daemon_profiler() { // a dedicated pthread (not part of Quill work-stealing)
+    //     const int fixed_interval=;//some value that you find experimentally
+    //     sleep(few milliseconds);// warmup duration that you find experimentally
+    //     double JPI_prev=0; //JPI is Joules per Instructions Retired
+    //     while(!shutdown) {
+    //         double JPI_curr = calculate_JPI(); // supported code provided along with this deadline
+    //         configure_DOP(JPI_prev, JPI_curr);
+    //         JPI_prev = JPI_curr;
+    //         sleep(fixed_interval);
+    //     }
+    // }
 
     void end_finish() {
         // int main_thread_id = 0; 

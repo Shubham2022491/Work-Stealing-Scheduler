@@ -252,11 +252,11 @@ namespace quill {
 
     int num_workers = 1; 
     constexpr size_t DEQUE_SIZE = 50;  
-    int N = 6; // Number of workers to sleep
+    int N = 8; // Number of workers to sleep
 
     pthread_t master_thread;
     pthread_mutex_t finish_counter_lock = PTHREAD_MUTEX_INITIALIZER;
-    std::queue<int> sleeping_workers_queue;  // Add std:: namespace
+
 
     template <size_t DEQUE_SIZE>
     WorkerDeque<DEQUE_SIZE>::WorkerDeque() : head(0), tail(0) {
@@ -329,10 +329,10 @@ namespace quill {
 
     volatile bool shutdown = false;
     void init_runtime() {
-        profiler_init(); 
+        profiler_init();
         const char* workers_env = std::getenv("QUILL_WORKERS");
-        std::cout << "QUILL_WORKERS environment variable: " << (workers_env ? workers_env : "not set") << std::endl;
-        
+    //    std::cout << "QUILL_WORKERS environment variable: " << (workers_env ? workers_env : "not set") << std::endl;
+       
         if (workers_env) {
             try {
                 num_workers = std::stoi(workers_env);
@@ -342,7 +342,9 @@ namespace quill {
                 num_workers = 1;
             }
         }
+
         if (num_workers < 1) {
+            std::cout << "Bull shit"<< std::endl;
             num_workers = 1; 
         }
         worker_deques.resize(num_workers);
@@ -362,8 +364,8 @@ namespace quill {
             throw std::runtime_error("Failed to create profiler thread");
         }
         // there should be a queue for the daemon profiler to push worker_ids who are sleeping(counter == 1)
-        
-        std::cout << "Quill runtime initialized with " << num_workers << " threads." << std::endl;
+        std::cout << "Helo"<< std::endl;
+        //std::cout << "Quill runtime initialized with " << num_workers << " threads." << std::endl;
     }
 
     volatile int finish_counter = 0;
@@ -400,6 +402,7 @@ namespace quill {
 
 
         if (worker_deques[worker_id].pop(task)) {
+            //cout<<"Worker "<<worker_id<<" popped a task and executing now"<<endl;
             task();  
             // delete &task;  
             pthread_mutex_lock(&finish_counter_lock);
@@ -411,6 +414,7 @@ namespace quill {
           
             for (int i = 0; i < num_workers; ++i) {
                 if (i != worker_id && worker_deques[i].steal(task)) {
+                 //   cout<<"Worker "<<worker_id<<" stole a task and executing now"<<endl;
                     task();
                     // delete &task;  
                     pthread_mutex_lock(&finish_counter_lock);
@@ -425,8 +429,11 @@ namespace quill {
             if (worker_deques[worker_id].counter_to_be_used_by_profiler == 1) {
                 pthread_mutex_unlock(&worker_deques[worker_id].counter_lock);
                 // cout<<"Worker "<<worker_id<<" is sleeping"<<endl;
+                
                 pthread_mutex_lock(&worker_deques[worker_id].lock);
+        //        cout<<"Worker "<<worker_id<<" says I am sleeping"<<endl;
                 pthread_cond_wait(&worker_deques[worker_id].cond, &worker_deques[worker_id].lock);
+         //       cout<<"Worker "<<worker_id<<" says I woke up"<<endl;
                 pthread_mutex_unlock(&worker_deques[worker_id].lock);
             } else {
                 pthread_mutex_unlock(&worker_deques[worker_id].counter_lock);
@@ -444,37 +451,45 @@ namespace quill {
     }
 
     void configure_DOP(double JPI_prev, double JPI_curr) {
-        // Initialize random number generator
+        // Implement the logic to configure DOP based on JPI_prev and JPI_curr
+        // This is a placeholder function; you need to implement the actual logic
+        // cout << "Configuring DOP with JPI_prev: " << JPI_prev << ", JPI_curr: " << JPI_curr << std::endl;
+
+        // when JPI_curr == 0 then sleep N worker threads using their private counter 
         static std::random_device rd;
         static std::mt19937 gen(rd());
-        
         if (JPI_curr == 0) {    // this is the first case
             int count = 0;
-            // Create a vector of worker indices and shuffle it
-            std::vector<int> worker_indices;
             for (int i = 1; i < num_workers; ++i) {
-                worker_indices.push_back(i);
-            }
-            std::shuffle(worker_indices.begin(), worker_indices.end(), gen);
-
-            for (int i : worker_indices) {
-                if (count == N) break;
-
+                // check if the worker is sleeping, by checking it in thew queue
                 pthread_mutex_lock(&worker_deques[i].counter_lock);
                 if (worker_deques[i].counter_to_be_used_by_profiler == 1) {
                   pthread_mutex_unlock(&worker_deques[i].counter_lock);
                   continue;
                 }
+                
 
+                if (count==N){
+                    break;
+                }
+            
                 pthread_mutex_lock(&worker_deques[i].lock);
-                if (worker_deques[i].head == worker_deques[i].tail) {
+                if (worker_deques[i].head == worker_deques[i].tail){
+                    // cout<<"Sleeping worker "<<i<<endl;
+                    // pthread_mutex_lock(&worker_deques[i].counter_lock);
+                    cout<<"hi"<<endl;
                     worker_deques[i].counter_to_be_used_by_profiler = 1;
+                    // put the worker id in to queue
                     sleeping_workers_queue.push(i);
                     count++;
                     pthread_mutex_unlock(&worker_deques[i].counter_lock);
+                    
+
                 } else {
+        //            cout<<"Worker "<<i<<" is not sleeping"<<endl;
                     pthread_mutex_unlock(&worker_deques[i].counter_lock);
                 }
+                
                 pthread_mutex_unlock(&worker_deques[i].lock);
                 
             }
@@ -487,15 +502,17 @@ namespace quill {
                 // Increase the number of threads or adjust workload
                 // to increase, just get N worker ids from queue, and set their counter to be 0
                 int count = 0;
-                while(!sleeping_workers_queue.empty() && count < N) {
+                while(!sleeping_workers_queue.empty() && count<N) {
                     int worker_id = sleeping_workers_queue.front();
                     sleeping_workers_queue.pop();
                     pthread_mutex_lock(&worker_deques[worker_id].counter_lock);
                     worker_deques[worker_id].counter_to_be_used_by_profiler = 0;
+      //              cout<<"waking up worker: "<<worker_id<< endl;
                     // send pthread_cond_signal to wake up the worker
                     pthread_cond_signal(&worker_deques[worker_id].cond);
-                    pthread_mutex_unlock(&worker_deques[worker_id].counter_lock);
                     count++;
+                    pthread_mutex_unlock(&worker_deques[worker_id].counter_lock);
+                    
                 }
             } else {
                 // cout << "Decreasing DOP" << std::endl;
@@ -506,30 +523,41 @@ namespace quill {
                     worker_indices.push_back(i);
                 }
                 std::shuffle(worker_indices.begin(), worker_indices.end(), gen);
-
                 for (int i : worker_indices) {
-                    if (count == N) break;
-
+                    // check if the worker is sleeping, by checking it in thew queue
+                    if (count==N){
+                        break;
+                    }
                     pthread_mutex_lock(&worker_deques[i].counter_lock);
                     if (worker_deques[i].counter_to_be_used_by_profiler == 1) {
                       pthread_mutex_unlock(&worker_deques[i].counter_lock);
                       continue;
                     }
+                    
 
+                    
+                  //  cout<<"Hmm I am getting it"<<endl;
                     pthread_mutex_lock(&worker_deques[i].lock);
-                    if (worker_deques[i].head == worker_deques[i].tail) {
+                    if (worker_deques[i].head == worker_deques[i].tail){
+                        pthread_mutex_unlock(&worker_deques[i].lock);
+                        // cout<<"Sleeping worker "<<i<<endl;
+                        // pthread_mutex_lock(&worker_deques[i].counter_lock);
                         worker_deques[i].counter_to_be_used_by_profiler = 1;
+             //           cout<<"putting worker " << i << "to sleep"<<endl;
                         sleeping_workers_queue.push(i);
+             //           cout<< i << ": pushed to queue"<<endl;
                         count++;
                         pthread_mutex_unlock(&worker_deques[i].counter_lock);
-                        
+              //          cout<<"out of counter lock "<<endl;
 
                     } else {
-                        cout<<"Worker "<<i<<" is not sleeping"<<endl;
+                        pthread_mutex_unlock(&worker_deques[i].lock);
+           //             cout<<"Worker "<<i<<" is not sleeping"<<endl;
                         pthread_mutex_unlock(&worker_deques[i].counter_lock);
                     }
                     
-                    pthread_mutex_unlock(&worker_deques[i].lock);
+                    
+             //       cout<<"out of deque lock "<<endl;
                     
                 }
 
@@ -537,15 +565,20 @@ namespace quill {
         }
     }
 
-    void daemon_profiler() {
-        const int fixed_interval = 100; // 100ms interval between measurements
-        usleep(100000); // 100ms warmup duration
-        double JPI_prev = 0;
+    void daemon_profiler() { // a dedicated pthread (not part of Quill work-stealing)
+        const int fixed_interval=100;//some value that you find experimentally
+        usleep(100000);// warmup duration that you find experimentally
+        double JPI_prev=0; //JPI is Joules per Instructions Retired
         while(!shutdown) {
-            double JPI_curr = calculate_JPI();
+            double JPI_curr = calculate_JPI(); // supported code provided along with this deadline
+            printf("JPI_prev = %.12f\n", JPI_prev);
+            printf("JPI_curr = %.12f\n", JPI_curr);
             configure_DOP(JPI_prev, JPI_curr);
+            printf("out of config function");
             JPI_prev = JPI_curr;
-            usleep(fixed_interval * 1000); // Convert ms to microseconds
+            printf("Daemon going to sleep");
+            usleep(fixed_interval * 100);
+            printf("hello from end of while loop");
         }
     }
 
@@ -560,20 +593,27 @@ namespace quill {
     
     void finalize_runtime() {
         shutdown = true;
-        // cout<<"Shutting down"<<endl;
+        cout<<"Shutting down"<<endl;
+        while(!sleeping_workers_queue.empty()) {
+            int worker_id = sleeping_workers_queue.front();
+            sleeping_workers_queue.pop();
+            pthread_mutex_lock(&worker_deques[worker_id].counter_lock);
+            worker_deques[worker_id].counter_to_be_used_by_profiler = 0;
+        //    cout<<"waking up worker: "<<worker_id<< endl;
+            // send pthread_cond_signal to wake up the worker
+            pthread_cond_signal(&worker_deques[worker_id].cond);
+            
+            pthread_mutex_unlock(&worker_deques[worker_id].counter_lock);  
+        }
         for (int i = 1; i < num_workers; ++i) {
             pthread_join(workers[i], nullptr);
-            // Destroy mutex and condition variable for each worker
             pthread_mutex_destroy(&worker_deques[i].lock);
             pthread_mutex_destroy(&worker_deques[i].counter_lock);
             pthread_cond_destroy(&worker_deques[i].cond);
         }
-        // Destroy mutex and condition variable for the master thread
         pthread_mutex_destroy(&worker_deques[0].lock);
         pthread_mutex_destroy(&worker_deques[0].counter_lock);
         pthread_cond_destroy(&worker_deques[0].cond);
-        // Destroy the finish counter lock
-        pthread_mutex_destroy(&finish_counter_lock);
         profiler_finalize(); 
     }
     

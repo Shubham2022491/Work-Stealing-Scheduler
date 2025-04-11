@@ -1,26 +1,16 @@
-# CC = g++
-# CFLAGS = -std=c++11 -Wall -pthread
-# SRC = streams.cpp quill-runtime.cpp
-# OBJ = $(SRC:.cpp=.o)
-# TARGET = quill_test
-# all: $(TARGET)
+CC = g++
+CFLAGS = -std=c++11 -Wall -pthread
+SRC = streams.cpp quill-runtime.cpp
+OBJ = $(SRC:.cpp=.o)
+TARGET = quill_test
 
-# $(TARGET): $(OBJ)
-# 	$(CC) $(CFLAGS) -o $(TARGET) $(OBJ)
-# %.o: %.cpp
-# 	$(CC) $(CFLAGS) -c $< -o $@
-# clean:
-# 	rm -f $(OBJ) $(TARGET)
+all: $(TARGET)
 
+$(TARGET): $(OBJ)
+	$(CC) $(CFLAGS) -o $(TARGET) $(OBJ) -lpfm -fopenmp
 
-TARGETS := profiler
-all: clean $(TARGETS) clean-obj
-
-%: %.c
-	gcc -O3 -o $@ $< -lpfm -fopenmp
-
-clean-obj:
-	rm -rf *.o
+%.o: %.cpp
+	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -rf *.o $(TARGETS)
+	rm -f $(OBJ) $(TARGET)

@@ -15,6 +15,9 @@ struct WorkerDeque {
     volatile int head;   
     volatile int tail;   
     pthread_mutex_t lock; 
+    volatile int counter_to_be_used_by_profiler = 0;
+    pthread_mutex_t counter_lock; 
+    pthread_cond_t cond;
 
     WorkerDeque();
     void push(std::function<void()>* task); 
@@ -28,6 +31,7 @@ struct WorkerDeque {
     
     
     void worker_func(void* arg);
+    void daemon_profiler();
   
 
 } // namespace quill
